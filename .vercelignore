@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.mongodb
+.git
+.DS_Store
+coverage
+*.log
+.env
+.env.*
+.vercel

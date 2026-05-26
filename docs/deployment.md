@@ -5,17 +5,20 @@
 Create three projects from the same GitHub repository:
 
 - `soteria-forge-lms`
-  - Root directory: `apps/lms`
-  - Build command: `npm run build --workspace @soteria-forge/lms`
+  - Root directory: repository root
+  - Config file: `vercel.lms.json`
+  - Build command: `npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/lms`
   - Output directory: `apps/lms/dist`
 
 - `soteria-forge-console`
-  - Root directory: `apps/console`
-  - Build command: `npm run build --workspace @soteria-forge/console`
+  - Root directory: repository root
+  - Config file: `vercel.console.json`
+  - Build command: `npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/console`
   - Output directory: `apps/console/dist`
 
 - `soteria-forge-api`
-  - Root directory: `apps/api`
+  - Root directory: repository root
+  - Config file: `vercel.api.json`
   - Runtime: Vercel Node functions
   - Entry: `api/index.ts`
 

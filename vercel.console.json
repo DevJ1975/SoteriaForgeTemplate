@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/console",
+  "outputDirectory": "apps/console/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

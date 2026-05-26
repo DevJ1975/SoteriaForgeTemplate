@@ -1,0 +1,15 @@
+{
+  "buildCommand": "npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/api",
+  "outputDirectory": ".",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
+  ]
+}
