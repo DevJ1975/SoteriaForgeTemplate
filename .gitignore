@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.local
+.DS_Store
+npm-debug.log*
+coverage
+.vercel
+
+# Self-contained local MongoDB (binaries, data, logs)
+.mongodb

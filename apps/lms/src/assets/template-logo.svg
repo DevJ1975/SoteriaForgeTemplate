@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 96" role="img" aria-labelledby="title">
+  <title id="title">LearningHub</title>
+  <rect width="340" height="96" fill="none"/>
+  <path d="M48 10 86 48 48 86 10 48z" fill="#1f3f86"/>
+  <path d="M48 24 72 48 48 72 24 48z" fill="#fff" opacity=".92"/>
+  <path d="M74 10 112 48 74 86 56 68 76 48 56 28z" fill="#c9a84e"/>
+  <path d="M22 28 4 48l44 44 18-18-26-26 26-26z" fill="#d62027"/>
+  <text x="132" y="61" fill="#101a2e" font-family="Inter, Arial, sans-serif" font-size="43" font-weight="900">LearningHub</text>
+</svg>
