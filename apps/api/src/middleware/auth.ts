@@ -28,6 +28,11 @@ export async function attachUser(req: Request, _: Response, next: NextFunction) 
     const user = await UserModel.findOne({ _id: claims.sub, tenantId: claims.tenantId })
 
     if (user) {
+      if (req.tenant && req.tenant.id !== claims.tenantId) {
+        next()
+        return
+      }
+
       req.user = {
         id: user.id,
         mongoId: user._id,
