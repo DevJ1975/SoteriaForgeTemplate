@@ -24,6 +24,7 @@ const selectedPackage = computed(() => packages.value.find((productPackage) => p
 const selectedCourse = computed(() => courses.value.find((course) => course.slug === courseSlug.value))
 
 function iconForPackage(slug: string) {
+  if (slug.includes('safety-forge')) return 'practical-signoff'
   if (slug.includes('compliance')) return 'audit'
   if (slug.includes('field')) return 'field-readiness'
   if (slug.includes('dedicated')) return 'course-builder'
@@ -40,6 +41,11 @@ function featureLabel(feature: string) {
     scorm: 'SCORM support',
     xapi: 'xAPI records',
     courseCreator: 'Course creator',
+    topicAuditReport: 'Topic audit report',
+    supervisorSignoff: 'Supervisor signoff',
+    officialDolCard: 'Official DOL card',
+    customBranding: 'Custom branding',
+    auditExports: 'Audit exports',
   }
 
   return labels[feature] ?? feature.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase())
@@ -90,6 +96,11 @@ onMounted(async () => {
   const [packageResponse, courseResponse] = await Promise.all([api.catalogPackages(), api.catalogCourses()])
   packages.value = packageResponse.packages
   courses.value = courseResponse.courses
+  if (!route.query.package && courseSlug.value) {
+    const course = courses.value.find((candidate) => candidate.slug === courseSlug.value)
+    const packageForCourse = packages.value.find((productPackage) => course?.includedPackageIds.includes(productPackage.id))
+    if (packageForCourse) selectedPackageSlug.value = packageForCourse.slug
+  }
   if (!packages.value.some((productPackage) => productPackage.slug === selectedPackageSlug.value)) {
     selectedPackageSlug.value = packages.value[0]?.slug ?? 'starter'
   }

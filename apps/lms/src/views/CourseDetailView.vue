@@ -14,6 +14,12 @@ const status = ref('Loading course preview')
 const includedPackages = computed(() =>
   packages.value.filter((productPackage) => course.value?.includedPackageIds.includes(productPackage.id)),
 )
+const primaryPackage = computed(() => includedPackages.value[0])
+const checkoutRoute = computed(() => {
+  const courseSlug = course.value?.slug ?? ''
+  const packageSlug = primaryPackage.value?.slug
+  return `/pricing?course=${courseSlug}${packageSlug ? `&package=${packageSlug}` : ''}`
+})
 
 onMounted(async () => {
   const slug = String(route.params.slug)
@@ -54,15 +60,27 @@ onMounted(async () => {
         <h1>{{ course.title }}</h1>
         <p>{{ course.publicSummary }}</p>
         <div class="catalog-actions">
-          <RouterLink class="button button-primary" :to="`/pricing?course=${course.slug}`">Unlock with package</RouterLink>
+          <RouterLink class="button button-primary" :to="checkoutRoute">Unlock with package</RouterLink>
           <RouterLink class="button button-secondary" to="/courses">Back to catalog</RouterLink>
         </div>
       </div>
       <aside class="paywall-card">
         <strong>{{ course.fieldReadinessScore }}</strong>
         <span>field readiness score</span>
+        <p>{{ course.durationMinutes }} min · {{ course.certificateLabel }}</p>
+        <p v-if="course.passingScore">Passing score: {{ course.passingScore }}%</p>
         <p>{{ status }}</p>
       </aside>
+    </section>
+
+    <section v-if="course?.complianceDisclaimers?.length" class="public-section">
+      <article class="disclaimer-panel">
+        <p class="eyebrow">Important course status</p>
+        <h2>OSHA-aligned shell, not an official DOL card course yet.</h2>
+        <ul>
+          <li v-for="disclaimer in course.complianceDisclaimers" :key="disclaimer">{{ disclaimer }}</li>
+        </ul>
+      </article>
     </section>
 
     <section v-if="course" class="public-section split-band">
@@ -74,8 +92,23 @@ onMounted(async () => {
       </div>
       <div class="locked-panel">
         <h2>Full course locked</h2>
-        <p>Videos, quizzes, attempts, xAPI activity, certificates, and downloadable job aids unlock after checkout.</p>
-        <RouterLink class="button button-primary" :to="`/pricing?course=${course.slug}`">Choose monthly access</RouterLink>
+        <p>Videos, quizzes, sequence gates, attempts, xAPI activity, completion records, and downloadable job aids unlock after checkout.</p>
+        <RouterLink class="button button-primary" :to="checkoutRoute">Choose monthly access</RouterLink>
+      </div>
+    </section>
+
+    <section v-if="course?.topicOutline?.length" class="public-section">
+      <div class="section-heading">
+        <p class="eyebrow">10-hour topic outline</p>
+        <h2>{{ course.contactHourTargetMinutes || course.durationMinutes }} minutes of required construction safety awareness.</h2>
+      </div>
+      <div class="topic-outline-grid">
+        <article v-for="topic in course.topicOutline" :key="topic.title" class="topic-outline-card">
+          <span>{{ topic.moduleTopicCode }}</span>
+          <h3>{{ topic.title }}</h3>
+          <p>{{ topic.description }}</p>
+          <strong>{{ topic.contactHourTargetMinutes }} min</strong>
+        </article>
       </div>
     </section>
 

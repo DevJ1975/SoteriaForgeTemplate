@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { AlertTriangle, BarChart3, FileDown, HardHat, RefreshCw, Users } from '@lucide/vue'
 import type { CertificateDTO, CourseDTO, EnrollmentDTO, UserDTO, UserRole } from '@soteria-forge/shared'
 import { api } from '../services/api'
@@ -47,6 +47,15 @@ const selectedCourseId = ref('')
 const selectedUserIds = ref<string[]>([])
 const dueAt = ref('')
 const csvDraft = ref('name,email,jobTitle,department,crew,site,roles\n')
+
+const safetyForgeCourse = computed(() => courses.value.find((course) => course.slug === 'safety-forge-10-hour'))
+const safetyForgeMinutes = computed(() => safetyForgeCourse.value?.contactHourTargetMinutes ?? safetyForgeCourse.value?.durationMinutes ?? 0)
+const safetyForgeLessons = computed(() =>
+  safetyForgeCourse.value?.modules.reduce((sum, module) => sum + module.lessons.length, 0) ?? 0,
+)
+const stuckLearners = computed(
+  () => enrollments.value.filter((enrollment) => enrollment.progress > 0 && enrollment.progress < 100).length,
+)
 
 function parseRoles(value: string): UserRole[] {
   return value
@@ -260,6 +269,13 @@ onMounted(() => {
         <h2>Apple Pay readiness</h2>
         <p>Stripe Checkout can show Apple Pay after payment method domains, HTTPS, live keys, and wallet settings are configured.</p>
         <strong>Stripe-hosted wallet flow</strong>
+      </article>
+      <article class="admin-panel">
+        <SoteriaIcon name="practical-signoff" :size="28" decorative />
+        <h2>Safety FORGE 10 Hour audit shell</h2>
+        <p>Topic-time targets, sequence gates, final assessment, and supervisor signoff are modeled for construction safety rollouts.</p>
+        <strong>{{ safetyForgeMinutes }} min · {{ safetyForgeLessons }} lessons</strong>
+        <small>{{ stuckLearners }} learners currently in progress</small>
       </article>
     </section>
 

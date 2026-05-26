@@ -13,6 +13,7 @@ export const env = {
   stripePriceStarter: process.env.STRIPE_PRICE_STARTER ?? '',
   stripePriceFieldTeam: process.env.STRIPE_PRICE_FIELD_TEAM ?? '',
   stripePriceCompliance: process.env.STRIPE_PRICE_COMPLIANCE ?? '',
+  stripePriceSafetyForge10Hour: process.env.STRIPE_PRICE_SAFETY_FORGE_10_HOUR ?? '',
   stripePriceDedicated: process.env.STRIPE_PRICE_DEDICATED ?? '',
   billingSuccessUrl: process.env.BILLING_SUCCESS_URL ?? '',
   billingCancelUrl: process.env.BILLING_CANCEL_URL ?? '',

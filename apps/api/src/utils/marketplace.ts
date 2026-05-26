@@ -16,6 +16,7 @@ import {
   TenantModel,
   UserModel,
 } from '../models/index.js'
+import { safetyForge10HourCourseSeed } from './safetyForge10Hour.js'
 
 const defaultPassword = 'SoteriaForgeDemo!2026'
 const Course: any = CourseModel
@@ -98,6 +99,33 @@ export function defaultPackageSeeds() {
       },
     },
     {
+      name: 'Safety FORGE 10 Hour',
+      slug: 'safety-forge-10-hour',
+      description:
+        'OSHA-aligned 10-hour construction safety awareness course shell with videos, quizzes, final assessment, offline supports, and supervisor signoff.',
+      headline: 'A field-ready 10-hour construction safety package.',
+      bestFor: 'Construction workers, small contractor crews, and jobsite onboarding',
+      seatLimit: 10,
+      stripePriceId: env.stripePriceSafetyForge10Hour,
+      priceLabel: env.stripePriceSafetyForge10Hour ? 'Monthly subscription' : 'Configure Stripe price',
+      displayPriceLabel: '10-hour safety access',
+      trialLabel: 'OSHA-aligned shell',
+      seatLabel: 'Up to 10 learners',
+      ctaLabel: 'Start Safety FORGE',
+      featured: true,
+      buyerType: 'both',
+      sortOrder: 25,
+      bundleKey: 'safety-forge-10-hour-construction',
+      featureFlags: {
+        certificates: true,
+        offlineMode: true,
+        xapi: true,
+        topicAuditReport: true,
+        supervisorSignoff: true,
+        officialDolCard: false,
+      },
+    },
+    {
       name: 'Dedicated Implementation',
       slug: 'dedicated-implementation',
       description: 'Implementation-ready package for branded subdomains, custom rollout support, and tenant-specific course operations.',
@@ -113,6 +141,7 @@ export function defaultPackageSeeds() {
       featured: false,
       buyerType: 'company',
       sortOrder: 40,
+      bundleKey: 'field-readiness-library',
       featureFlags: {
         certificates: true,
         offlineMode: true,
@@ -135,7 +164,7 @@ export async function ensureMarketplaceCatalog() {
           slug: 'field-readiness-orientation',
           publicSummary:
             'A short, mobile-first starter course for crews who need practical safety habits, offline support, and completion records in the field.',
-          audience: 'New field employees, contractors, crew leads, and owner-operators',
+          audience: ['New field employees', 'Contractors', 'Crew leads', 'Owner-operators'],
           outcomes: [
             'Explain how Soteria FORGE supports field-ready training.',
             'Identify the offline workflow for low-connectivity job sites.',
@@ -150,10 +179,21 @@ export async function ensureMarketplaceCatalog() {
         },
       },
     )
+
+    const safetySeed = safetyForge10HourCourseSeed(demoTenant._id)
+    const existingSafetyCourse = await Course.findOne({ tenantId: demoTenant._id, slug: 'safety-forge-10-hour' })
+    if (existingSafetyCourse) {
+      const { modules: _modules, tenantId: _tenantId, ...safetyMetadata } = safetySeed
+      await Course.findByIdAndUpdate(existingSafetyCourse._id, { $set: safetyMetadata })
+    } else {
+      await Course.create(safetySeed)
+    }
   }
   const demoCourses = demoTenant ? await Course.find({ tenantId: demoTenant._id, status: 'published' }).sort({ updatedAt: -1 }) : []
+  const fieldReadinessCourses = demoCourses.filter((course: any) => course.slug === 'field-readiness-orientation')
+  const safetyForgeCourses = demoCourses.filter((course: any) => course.slug === 'safety-forge-10-hour')
 
-  const bundle = await CourseBundleModel.findOneAndUpdate(
+  const fieldReadinessBundle = await CourseBundleModel.findOneAndUpdate(
     { slug: 'field-readiness-library' },
     {
       $setOnInsert: {
@@ -165,30 +205,58 @@ export async function ensureMarketplaceCatalog() {
         sortOrder: 10,
       },
       $set: {
-        courseIds: demoCourses.map((course: any) => course._id),
+        courseIds: fieldReadinessCourses.map((course: any) => course._id),
       },
     },
     { upsert: true, returnDocument: 'after' },
   )
 
+  const safetyForgeBundle = await CourseBundleModel.findOneAndUpdate(
+    { slug: 'safety-forge-10-hour-construction' },
+    {
+      $setOnInsert: {
+        name: 'Safety FORGE 10 Hour Construction',
+        slug: 'safety-forge-10-hour-construction',
+        description: 'OSHA-aligned construction safety awareness course shell for hybrid field-ready delivery.',
+        category: 'Construction Safety',
+        status: 'active',
+        sortOrder: 20,
+      },
+      $set: {
+        courseIds: safetyForgeCourses.map((course: any) => course._id),
+      },
+    },
+    { upsert: true, returnDocument: 'after' },
+  )
+
+  const bundlesByKey = {
+    'field-readiness-library': fieldReadinessBundle,
+    'safety-forge-10-hour-construction': safetyForgeBundle,
+  }
+
   for (const seed of defaultPackageSeeds()) {
+    const bundleKey = 'bundleKey' in seed ? seed.bundleKey : 'field-readiness-library'
+    const bundleIds =
+      seed.slug === 'compliance'
+        ? [fieldReadinessBundle._id, safetyForgeBundle._id]
+        : [bundlesByKey[bundleKey as keyof typeof bundlesByKey]._id]
     await ProductPackageModel.findOneAndUpdate(
       { slug: seed.slug },
       {
         $setOnInsert: {
-          name: seed.name,
           slug: seed.slug,
-          description: seed.description,
           status: 'active',
-          buyerType: seed.buyerType,
-          sortOrder: seed.sortOrder,
         },
         $set: {
-          bundleIds: [bundle._id],
+          name: seed.name,
+          description: seed.description,
+          bundleIds,
           seatLimit: seed.seatLimit,
           featureFlags: seed.featureFlags,
           stripePriceId: seed.stripePriceId,
           priceLabel: seed.priceLabel,
+          buyerType: seed.buyerType,
+          sortOrder: seed.sortOrder,
           headline: seed.headline,
           bestFor: seed.bestFor,
           featured: seed.featured,
@@ -229,6 +297,13 @@ export async function cloneBundleCoursesToTenant(packageId: unknown, tenantId: u
           topic: course.topic,
           durationMinutes: course.durationMinutes,
           certificateLabel: course.certificateLabel,
+          complianceDisclaimers: course.complianceDisclaimers,
+          contactHourTargetMinutes: course.contactHourTargetMinutes,
+          sequenceLocked: course.sequenceLocked,
+          passingScore: course.passingScore,
+          attemptLimit: course.attemptLimit,
+          languageVariants: course.languageVariants,
+          studyGuideAssetId: course.studyGuideAssetId,
           thumbnailUrl: course.thumbnailUrl,
           heroImageUrl: course.heroImageUrl,
           previewLessonId: course.previewLessonId,

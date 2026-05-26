@@ -65,8 +65,14 @@ export type CourseLessonDTO = {
   description: string
   durationMinutes: number
   required: boolean
+  minimumSeatTimeMinutes?: number
+  activeEngagementPrompt?: string
+  passingScore?: number
+  attemptLimit?: number
+  languageVariants?: string[]
   vimeoUrl?: string
   assetId?: string
+  studyGuideAssetId?: string
   quizQuestions?: QuizQuestionDTO[]
   transcript?: string
   offlineSummary?: string
@@ -76,14 +82,34 @@ export type CourseModuleDTO = {
   id: string
   title: string
   description?: string
+  moduleTopicCode?: string
+  contactHourTargetMinutes?: number
+  minimumSeatTimeMinutes?: number
+  sequenceLocked?: boolean
   lessons: CourseLessonDTO[]
 }
 
 export type CourseDTO = {
   id: string
   tenantId: string
+  slug?: string
   title: string
   description: string
+  publicSummary?: string
+  audience?: string[]
+  outcomes?: string[]
+  category?: string
+  role?: string
+  topic?: string
+  durationMinutes?: number
+  certificateLabel?: string
+  complianceDisclaimers?: string[]
+  contactHourTargetMinutes?: number
+  sequenceLocked?: boolean
+  passingScore?: number
+  attemptLimit?: number
+  languageVariants?: string[]
+  studyGuideAssetId?: string
   status: CourseStatus
   tags: string[]
   fieldReadinessScore: number
@@ -190,6 +216,18 @@ export type PublicCourseDTO = {
   topic: string
   durationMinutes: number
   certificateLabel: string
+  complianceDisclaimers?: string[]
+  contactHourTargetMinutes?: number
+  sequenceLocked?: boolean
+  passingScore?: number
+  attemptLimit?: number
+  languageVariants?: string[]
+  topicOutline?: Array<{
+    title: string
+    description?: string
+    moduleTopicCode?: string
+    contactHourTargetMinutes?: number
+  }>
   fieldReadinessScore: number
   thumbnailUrl?: string
   heroImageUrl?: string

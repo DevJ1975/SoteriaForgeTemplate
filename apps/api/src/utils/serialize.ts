@@ -38,6 +38,11 @@ function mapToObject(value: any) {
   return value
 }
 
+function arrayValue(value: any) {
+  if (!value) return []
+  return Array.isArray(value) ? value : [value]
+}
+
 export function serializeCourseBundle(bundle: any): CourseBundleDTO {
   return {
     id: bundle.id,
@@ -98,13 +103,25 @@ export function serializePublicCourse(course: any, includedPackageIds: string[] 
     title: course.title,
     description: course.description,
     publicSummary: course.publicSummary ?? course.description,
-    audience: course.audience ?? [],
-    outcomes: course.outcomes ?? [],
+    audience: arrayValue(course.audience),
+    outcomes: arrayValue(course.outcomes),
     category: course.category ?? 'Industrial Safety',
     role: course.role ?? 'Field Worker',
     topic: course.topic ?? 'Field Readiness',
     durationMinutes,
     certificateLabel: course.certificateLabel ?? (course.certificateExpiresInDays ? 'Certificate included' : 'Completion record'),
+    complianceDisclaimers: arrayValue(course.complianceDisclaimers),
+    contactHourTargetMinutes: course.contactHourTargetMinutes,
+    sequenceLocked: course.sequenceLocked,
+    passingScore: course.passingScore,
+    attemptLimit: course.attemptLimit,
+    languageVariants: arrayValue(course.languageVariants),
+    topicOutline: (course.modules ?? []).map((module: any) => ({
+      title: module.title,
+      description: module.description,
+      moduleTopicCode: module.moduleTopicCode,
+      contactHourTargetMinutes: module.contactHourTargetMinutes,
+    })),
     fieldReadinessScore: course.fieldReadinessScore ?? 0,
     thumbnailUrl: course.thumbnailUrl,
     heroImageUrl: course.heroImageUrl,
@@ -117,7 +134,7 @@ export function serializePublicCourse(course: any, includedPackageIds: string[] 
         }
       : undefined,
     includedPackageIds,
-    tags: course.tags ?? [],
+    tags: arrayValue(course.tags),
   }
 }
 
@@ -139,16 +156,36 @@ export function serializeCourse(course: any): CourseDTO {
   return {
     id: course.id,
     tenantId: course.tenantId.toString(),
+    slug: course.slug,
     title: course.title,
     description: course.description,
+    publicSummary: course.publicSummary,
+    audience: arrayValue(course.audience),
+    outcomes: arrayValue(course.outcomes),
+    category: course.category,
+    role: course.role,
+    topic: course.topic,
+    durationMinutes: course.durationMinutes,
+    certificateLabel: course.certificateLabel,
+    complianceDisclaimers: arrayValue(course.complianceDisclaimers),
+    contactHourTargetMinutes: course.contactHourTargetMinutes,
+    sequenceLocked: course.sequenceLocked,
+    passingScore: course.passingScore,
+    attemptLimit: course.attemptLimit,
+    languageVariants: arrayValue(course.languageVariants),
+    studyGuideAssetId: course.studyGuideAssetId?.toString(),
     status: course.status,
-    tags: course.tags ?? [],
+    tags: arrayValue(course.tags),
     fieldReadinessScore: course.fieldReadinessScore ?? 0,
     certificateExpiresInDays: course.certificateExpiresInDays,
     modules: (course.modules ?? []).map((module: any) => ({
       id: module.id,
       title: module.title,
       description: module.description,
+      moduleTopicCode: module.moduleTopicCode,
+      contactHourTargetMinutes: module.contactHourTargetMinutes,
+      minimumSeatTimeMinutes: module.minimumSeatTimeMinutes,
+      sequenceLocked: module.sequenceLocked,
       lessons: (module.lessons ?? []).map((lesson: any) => ({
         id: lesson.id,
         kind: lesson.kind,
@@ -156,8 +193,14 @@ export function serializeCourse(course: any): CourseDTO {
         description: lesson.description,
         durationMinutes: lesson.durationMinutes,
         required: lesson.required,
+        minimumSeatTimeMinutes: lesson.minimumSeatTimeMinutes,
+        activeEngagementPrompt: lesson.activeEngagementPrompt,
+        passingScore: lesson.passingScore,
+        attemptLimit: lesson.attemptLimit,
+        languageVariants: arrayValue(lesson.languageVariants),
         vimeoUrl: lesson.vimeoUrl,
         assetId: lesson.assetId?.toString(),
+        studyGuideAssetId: lesson.studyGuideAssetId?.toString(),
         quizQuestions: lesson.quizQuestions ?? [],
         transcript: lesson.transcript,
         offlineSummary: lesson.offlineSummary,

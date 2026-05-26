@@ -41,6 +41,11 @@ type RankedLeaderboardEntry = LeaderboardEntry & {
 
 type LmsLesson = Lesson & {
   courseId?: string
+  moduleTitle?: string
+  minimumSeatTimeMinutes?: number
+  activeEngagementPrompt?: string
+  passingScore?: number
+  attemptLimit?: number
   quizQuestions?: QuizQuestionDTO[]
   transcript?: string
   offlineSummary?: string
@@ -50,6 +55,10 @@ type LmsLesson = Lesson & {
 
 type LmsTrainingPath = Omit<TrainingPath, 'lessons'> & {
   courseId?: string
+  durationMinutes?: number
+  contactHourTargetMinutes?: number
+  sequenceLocked?: boolean
+  complianceDisclaimers?: string[]
   lessons: LmsLesson[]
 }
 
@@ -142,33 +151,50 @@ const nextUp = computed(() => {
 
 function courseToTrainingPath(course: CourseDTO): LmsTrainingPath {
   const enrollment = apiEnrollments.value.find((candidate) => candidate.courseId === course.id)
-  const flatLessons = course.modules.flatMap((module) => module.lessons.map((lesson) => courseLessonToLesson(course, lesson)))
+  const flatLessons = course.modules.flatMap((module) => module.lessons.map((lesson) => courseLessonToLesson(course, lesson, module.title)))
   const progress = enrollment?.progress ?? 0
+  const firstIncompleteIndex = flatLessons.findIndex((lesson) => !completedLessons.value.includes(lesson.id))
 
   return {
     id: course.id,
     courseId: course.id,
     title: course.title,
-    category: course.tags[0] ?? 'Field Ready',
+    category: course.category ?? course.tags[0] ?? 'Field Ready',
     outcome: course.description,
     dueDate: enrollment?.dueAt ? new Date(enrollment.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Assigned',
     progress,
+    durationMinutes: course.durationMinutes,
+    contactHourTargetMinutes: course.contactHourTargetMinutes,
+    sequenceLocked: course.sequenceLocked,
+    complianceDisclaimers: course.complianceDisclaimers,
     lessons: flatLessons.map((lesson, index) => ({
       ...lesson,
-      status: progress >= 100 || completedLessons.value.includes(lesson.id) ? 'complete' : index === 0 ? 'current' : lesson.status,
+      status:
+        progress >= 100 || completedLessons.value.includes(lesson.id)
+          ? 'complete'
+          : course.sequenceLocked && firstIncompleteIndex >= 0 && index > firstIncompleteIndex
+            ? 'locked'
+            : index === Math.max(firstIncompleteIndex, 0)
+              ? 'current'
+              : lesson.status,
     })),
   }
 }
 
-function courseLessonToLesson(course: CourseDTO, lesson: CourseLessonDTO): LmsLesson {
+function courseLessonToLesson(course: CourseDTO, lesson: CourseLessonDTO, moduleTitle?: string): LmsLesson {
   return {
     id: lesson.id,
     courseId: course.id,
+    moduleTitle,
     title: lesson.title,
     type: lesson.kind,
     duration: `${lesson.durationMinutes} min`,
     description: lesson.description,
     status: 'current',
+    minimumSeatTimeMinutes: lesson.minimumSeatTimeMinutes,
+    activeEngagementPrompt: lesson.activeEngagementPrompt,
+    passingScore: lesson.passingScore,
+    attemptLimit: lesson.attemptLimit,
     quizQuestions: lesson.quizQuestions,
     transcript: lesson.transcript,
     offlineSummary: lesson.offlineSummary,
@@ -663,6 +689,7 @@ onBeforeUnmount(() => {
           >
             <span>{{ path.category }}</span>
             <strong>{{ path.title }}</strong>
+            <small v-if="path.contactHourTargetMinutes">{{ path.contactHourTargetMinutes }} min contact target</small>
           </button>
         </aside>
 
@@ -672,8 +699,19 @@ onBeforeUnmount(() => {
               <p class="eyebrow">{{ selectedPath.title }}</p>
               <h2>{{ selectedLesson.title }}</h2>
               <p>{{ selectedLesson.description }}</p>
+              <div class="lesson-meta-row">
+                <span v-if="selectedLesson.moduleTitle">{{ selectedLesson.moduleTitle }}</span>
+                <span v-if="selectedLesson.minimumSeatTimeMinutes">Minimum seat time: {{ selectedLesson.minimumSeatTimeMinutes }} min</span>
+                <span v-if="selectedLesson.passingScore">Passing score: {{ selectedLesson.passingScore }}%</span>
+                <span v-if="selectedLesson.attemptLimit">Attempts: {{ selectedLesson.attemptLimit }}</span>
+                <span v-if="selectedPath.sequenceLocked">Sequence locked</span>
+              </div>
             </div>
             <span class="duration-pill">{{ selectedLesson.duration }}</span>
+          </div>
+
+          <div v-if="selectedPath.complianceDisclaimers?.length" class="lesson-disclaimer">
+            {{ selectedPath.complianceDisclaimers[0] }}
           </div>
 
           <div class="lesson-body">
@@ -713,6 +751,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="lesson-notes">
                 <h3>{{ selectedLesson.transcript || selectedLesson.offlineSummary ? 'Offline support' : 'Key takeaways' }}</h3>
+                <p v-if="selectedLesson.activeEngagementPrompt" class="coaching-note">{{ selectedLesson.activeEngagementPrompt }}</p>
                 <p v-if="selectedLesson.offlineSummary">{{ selectedLesson.offlineSummary }}</p>
                 <p v-if="selectedLesson.transcript">{{ selectedLesson.transcript }}</p>
                 <ul v-if="!selectedLesson.transcript && !selectedLesson.offlineSummary">
@@ -738,11 +777,19 @@ onBeforeUnmount(() => {
               <article class="question-block">
                 <h3>{{ selectedLesson.title }}</h3>
                 <p>{{ selectedLesson.description }}</p>
+                <p v-if="selectedLesson.activeEngagementPrompt" class="coaching-note">{{ selectedLesson.activeEngagementPrompt }}</p>
                 <p v-if="selectedLesson.offlineSummary" class="coaching-note">{{ selectedLesson.offlineSummary }}</p>
               </article>
             </div>
 
             <div v-else-if="selectedLesson.type === 'quiz'" class="quiz-stack">
+              <article v-if="selectedLesson.activeEngagementPrompt || selectedLesson.passingScore" class="question-block">
+                <h3>Checkpoint requirements</h3>
+                <p v-if="selectedLesson.activeEngagementPrompt">{{ selectedLesson.activeEngagementPrompt }}</p>
+                <p v-if="selectedLesson.passingScore" class="coaching-note">
+                  Passing score {{ selectedLesson.passingScore }}%{{ selectedLesson.attemptLimit ? ` · ${selectedLesson.attemptLimit} attempts` : '' }}
+                </p>
+              </article>
               <article v-for="question in selectedQuizQuestions" :key="question.id" class="question-block">
                 <h3>{{ question.prompt }}</h3>
                 <label v-for="option in question.options" :key="option" class="choice-row">

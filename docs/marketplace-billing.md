@@ -14,6 +14,7 @@ Create monthly Stripe Products/Prices for:
 - Starter
 - Field Team
 - Compliance
+- Safety FORGE 10 Hour
 - Dedicated Implementation
 
 Configure these environment variables on the API project:
@@ -24,6 +25,7 @@ STRIPE_WEBHOOK_SECRET=
 STRIPE_PRICE_STARTER=
 STRIPE_PRICE_FIELD_TEAM=
 STRIPE_PRICE_COMPLIANCE=
+STRIPE_PRICE_SAFETY_FORGE_10_HOUR=
 STRIPE_PRICE_DEDICATED=
 BILLING_SUCCESS_URL=https://soteria-forge-lms.vercel.app/?checkout=success
 BILLING_CANCEL_URL=https://soteria-forge-lms.vercel.app/catalog?checkout=cancelled
