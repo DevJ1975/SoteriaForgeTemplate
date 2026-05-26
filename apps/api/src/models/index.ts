@@ -2,9 +2,14 @@ import mongoose, { Schema } from 'mongoose'
 import type {
   AssetKind,
   AttemptStatus,
+  BillingStatus,
+  CommerceStatus,
   CourseStatus,
   EnrollmentStatus,
   LessonKind,
+  MarketplaceOrderStatus,
+  SubscriptionStatus,
+  TenantMode,
   TenantStatus,
   UserRole,
 } from '@soteria-forge/shared'
@@ -76,8 +81,55 @@ export const TenantModel = mongoose.model(
       slug: { type: String, required: true, unique: true, index: true },
       domains: { type: [String], default: [] },
       status: { type: String, enum: ['active', 'trial', 'suspended', 'archived'] satisfies TenantStatus[], default: 'trial' },
+      mode: { type: String, enum: ['marketplace', 'dedicated'] satisfies TenantMode[], default: 'dedicated', index: true },
+      billingStatus: {
+        type: String,
+        enum: ['none', 'incomplete', 'trialing', 'active', 'past_due', 'canceled', 'unpaid', 'manual'] satisfies BillingStatus[],
+        default: 'none',
+        index: true,
+      },
+      seatLimit: Number,
+      marketplaceOriginTenantId: { type: Schema.Types.ObjectId, ref: 'Tenant' },
+      dedicatedSubdomain: String,
       branding: { type: tenantBrandingSchema, required: true },
       settings: { type: tenantSettingsSchema, required: true },
+    },
+    timestamps,
+  ),
+)
+
+export const CourseBundleModel = mongoose.model(
+  'CourseBundle',
+  new Schema(
+    {
+      name: { type: String, required: true },
+      slug: { type: String, required: true, unique: true, index: true },
+      description: { type: String, default: '' },
+      category: { type: String, default: 'Field Training' },
+      status: { type: String, enum: ['draft', 'active', 'archived'] satisfies CommerceStatus[], default: 'draft', index: true },
+      courseIds: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
+      sortOrder: { type: Number, default: 100 },
+    },
+    timestamps,
+  ),
+)
+
+export const ProductPackageModel = mongoose.model(
+  'ProductPackage',
+  new Schema(
+    {
+      name: { type: String, required: true },
+      slug: { type: String, required: true, unique: true, index: true },
+      description: { type: String, default: '' },
+      status: { type: String, enum: ['draft', 'active', 'archived'] satisfies CommerceStatus[], default: 'draft', index: true },
+      bundleIds: [{ type: Schema.Types.ObjectId, ref: 'CourseBundle' }],
+      seatLimit: { type: Number, default: 1 },
+      featureFlags: { type: Map, of: Boolean, default: {} },
+      stripeProductId: String,
+      stripePriceId: String,
+      priceLabel: String,
+      buyerType: { type: String, enum: ['individual', 'company', 'both'], default: 'both' },
+      sortOrder: { type: Number, default: 100 },
     },
     timestamps,
   ),
@@ -255,6 +307,66 @@ export const ScormRuntimeModel = mongoose.model(
       sessionTime: String,
       totalTime: String,
       interactions: [Schema.Types.Mixed],
+    },
+    timestamps,
+  ),
+)
+
+export const SubscriptionModel = mongoose.model(
+  'Subscription',
+  new Schema(
+    {
+      ...tenantScoped,
+      buyerUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+      packageId: { type: Schema.Types.ObjectId, ref: 'ProductPackage', required: true },
+      status: {
+        type: String,
+        enum: ['incomplete', 'trialing', 'active', 'past_due', 'canceled', 'unpaid'] satisfies SubscriptionStatus[],
+        required: true,
+        index: true,
+      },
+      stripeCustomerId: { type: String, index: true },
+      stripeSubscriptionId: { type: String, index: true },
+      currentPeriodEnd: Date,
+      cancelAtPeriodEnd: { type: Boolean, default: false },
+    },
+    timestamps,
+  ),
+)
+
+export const EntitlementModel = mongoose.model(
+  'Entitlement',
+  new Schema(
+    {
+      ...tenantScoped,
+      packageId: { type: Schema.Types.ObjectId, ref: 'ProductPackage', required: true },
+      courseIds: [{ type: Schema.Types.ObjectId, ref: 'Course' }],
+      seatLimit: { type: Number, default: 1 },
+      features: { type: Map, of: Boolean, default: {} },
+      source: { type: String, enum: ['stripe', 'manual', 'trial', 'demo'], default: 'stripe' },
+    },
+    timestamps,
+  ).index({ tenantId: 1, packageId: 1 }, { unique: true }),
+)
+
+export const MarketplaceOrderModel = mongoose.model(
+  'MarketplaceOrder',
+  new Schema(
+    {
+      tenantId: { type: Schema.Types.ObjectId, ref: 'Tenant', index: true },
+      packageId: { type: Schema.Types.ObjectId, ref: 'ProductPackage', required: true },
+      buyerEmail: { type: String, required: true, lowercase: true, trim: true },
+      buyerName: { type: String, required: true },
+      buyerType: { type: String, enum: ['individual', 'company'], required: true },
+      companyName: String,
+      seatCount: { type: Number, default: 1 },
+      status: {
+        type: String,
+        enum: ['pending', 'checkout-created', 'completed', 'canceled', 'failed'] satisfies MarketplaceOrderStatus[],
+        default: 'pending',
+        index: true,
+      },
+      stripeCheckoutSessionId: { type: String, index: true },
     },
     timestamps,
   ),

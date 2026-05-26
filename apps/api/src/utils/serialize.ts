@@ -1,9 +1,14 @@
 import type {
   CertificateDTO,
   CompletionDTO,
+  CourseBundleDTO,
   CourseDTO,
+  EntitlementDTO,
   EnrollmentDTO,
+  MarketplaceOrderDTO,
+  ProductPackageDTO,
   ScormRuntimeDTO,
+  SubscriptionDTO,
   TenantDTO,
   UserDTO,
   UserRole,
@@ -16,8 +21,50 @@ export function serializeTenant(tenant: any): TenantDTO {
     slug: tenant.slug,
     domains: tenant.domains ?? [],
     status: tenant.status,
+    mode: tenant.mode ?? 'dedicated',
+    billingStatus: tenant.billingStatus ?? 'none',
+    seatLimit: tenant.seatLimit,
+    marketplaceOriginTenantId: tenant.marketplaceOriginTenantId?.toString(),
+    dedicatedSubdomain: tenant.dedicatedSubdomain,
     branding: tenant.branding,
     settings: tenant.settings,
+  }
+}
+
+function mapToObject(value: any) {
+  if (!value) return {}
+  if (value instanceof Map) return Object.fromEntries(value.entries())
+  return value
+}
+
+export function serializeCourseBundle(bundle: any): CourseBundleDTO {
+  return {
+    id: bundle.id,
+    name: bundle.name,
+    slug: bundle.slug,
+    description: bundle.description ?? '',
+    category: bundle.category ?? 'Field Training',
+    status: bundle.status,
+    courseIds: (bundle.courseIds ?? []).map((id: any) => id.toString()),
+    sortOrder: bundle.sortOrder ?? 100,
+  }
+}
+
+export function serializeProductPackage(productPackage: any): ProductPackageDTO {
+  return {
+    id: productPackage.id,
+    name: productPackage.name,
+    slug: productPackage.slug,
+    description: productPackage.description ?? '',
+    status: productPackage.status,
+    bundleIds: (productPackage.bundleIds ?? []).map((id: any) => id.toString()),
+    seatLimit: productPackage.seatLimit ?? 1,
+    featureFlags: mapToObject(productPackage.featureFlags),
+    stripeProductId: productPackage.stripeProductId,
+    stripePriceId: productPackage.stripePriceId,
+    priceLabel: productPackage.priceLabel,
+    buyerType: productPackage.buyerType ?? 'both',
+    sortOrder: productPackage.sortOrder ?? 100,
   }
 }
 
@@ -102,6 +149,47 @@ export function serializeCertificate(certificate: any): CertificateDTO {
     issuedAt: certificate.issuedAt?.toISOString?.() ?? new Date().toISOString(),
     expiresAt: certificate.expiresAt?.toISOString?.(),
     revokedAt: certificate.revokedAt?.toISOString?.(),
+  }
+}
+
+export function serializeSubscription(subscription: any): SubscriptionDTO {
+  return {
+    id: subscription.id,
+    tenantId: subscription.tenantId.toString(),
+    buyerUserId: subscription.buyerUserId.toString(),
+    packageId: subscription.packageId.toString(),
+    status: subscription.status,
+    stripeCustomerId: subscription.stripeCustomerId,
+    stripeSubscriptionId: subscription.stripeSubscriptionId,
+    currentPeriodEnd: subscription.currentPeriodEnd?.toISOString?.(),
+    cancelAtPeriodEnd: Boolean(subscription.cancelAtPeriodEnd),
+  }
+}
+
+export function serializeEntitlement(entitlement: any): EntitlementDTO {
+  return {
+    id: entitlement.id,
+    tenantId: entitlement.tenantId.toString(),
+    packageId: entitlement.packageId.toString(),
+    courseIds: (entitlement.courseIds ?? []).map((id: any) => id.toString()),
+    seatLimit: entitlement.seatLimit ?? 1,
+    features: mapToObject(entitlement.features),
+    source: entitlement.source ?? 'stripe',
+  }
+}
+
+export function serializeMarketplaceOrder(order: any): MarketplaceOrderDTO {
+  return {
+    id: order.id,
+    tenantId: order.tenantId?.toString(),
+    packageId: order.packageId.toString(),
+    buyerEmail: order.buyerEmail,
+    buyerName: order.buyerName,
+    buyerType: order.buyerType,
+    companyName: order.companyName,
+    seatCount: order.seatCount ?? 1,
+    status: order.status,
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId,
   }
 }
 

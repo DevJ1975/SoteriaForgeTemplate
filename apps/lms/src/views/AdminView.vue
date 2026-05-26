@@ -21,6 +21,17 @@ const users = ref<UserDTO[]>([])
 const courses = ref<CourseDTO[]>([])
 const enrollments = ref<EnrollmentDTO[]>([])
 const certificates = ref<CertificateDTO[]>([])
+const billing = ref<{
+  packageName: string
+  billingStatus: string
+  seatUsed: number
+  seatLimit: number
+}>({
+  packageName: 'No marketplace package',
+  billingStatus: 'none',
+  seatUsed: 0,
+  seatLimit: 0,
+})
 const userDraft = ref({
   name: '',
   email: '',
@@ -92,18 +103,25 @@ async function loadReport() {
   queuedItems.value = (await getQueuedItems()).length
 
   try {
-    const [reportResponse, usersResponse, coursesResponse, enrollmentsResponse, certificatesResponse] = await Promise.all([
+    const [reportResponse, usersResponse, coursesResponse, enrollmentsResponse, certificatesResponse, billingResponse] = await Promise.all([
       api.adminCompletionReport(),
       api.adminUsers(),
       api.courses(),
       api.adminEnrollments(),
       api.adminCertificates(),
+      api.billingSubscription(),
     ])
     report.value = reportResponse.summary
     users.value = usersResponse.users
     courses.value = coursesResponse.courses
     enrollments.value = enrollmentsResponse.enrollments
     certificates.value = certificatesResponse.certificates
+    billing.value = {
+      packageName: billingResponse.package?.name ?? 'Manual / dedicated tenant',
+      billingStatus: String((billingResponse.subscription as { status?: string } | null)?.status ?? 'manual'),
+      seatUsed: billingResponse.seatUsage.used,
+      seatLimit: billingResponse.seatUsage.limit,
+    }
     selectedCourseId.value ||= courses.value[0]?.id ?? ''
     status.value = 'Live tenant report'
   } catch (error) {
@@ -152,6 +170,16 @@ async function assignCourse() {
   })
   selectedUserIds.value = []
   await loadReport()
+}
+
+async function openBillingPortal() {
+  status.value = 'Opening billing portal'
+  const response = await api.billingPortal(window.location.href)
+  if (response.portalUrl) {
+    window.location.href = response.portalUrl
+    return
+  }
+  status.value = 'Stripe portal is ready once billing credentials are configured.'
 }
 
 onMounted(loadReport)
@@ -211,6 +239,12 @@ onMounted(loadReport)
       <article class="admin-panel">
         <h2>Roster and crews</h2>
         <p>CSV roster upload, crew assignment, site assignment, and manager-scoped reporting belong in this surface.</p>
+      </article>
+      <article class="admin-panel">
+        <h2>Billing and seats</h2>
+        <p>{{ billing.packageName }} · {{ billing.billingStatus }}</p>
+        <strong>{{ billing.seatUsed }}/{{ billing.seatLimit }} seats</strong>
+        <button class="button button-secondary" type="button" @click="openBillingPortal">Manage Billing</button>
       </article>
     </section>
 

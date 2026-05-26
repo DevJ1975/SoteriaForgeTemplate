@@ -8,6 +8,14 @@ export const env = {
   cookieName: process.env.SESSION_COOKIE_NAME ?? 'soteria_session',
   rootDomain: process.env.ROOT_DOMAIN,
   objectStorageBaseUrl: process.env.OBJECT_STORAGE_BASE_URL ?? '',
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+  stripePriceStarter: process.env.STRIPE_PRICE_STARTER ?? '',
+  stripePriceFieldTeam: process.env.STRIPE_PRICE_FIELD_TEAM ?? '',
+  stripePriceCompliance: process.env.STRIPE_PRICE_COMPLIANCE ?? '',
+  stripePriceDedicated: process.env.STRIPE_PRICE_DEDICATED ?? '',
+  billingSuccessUrl: process.env.BILLING_SUCCESS_URL ?? '',
+  billingCancelUrl: process.env.BILLING_CANCEL_URL ?? '',
   vimeoAllowedDomains: (process.env.VIMEO_ALLOWED_DOMAINS ?? '')
     .split(',')
     .map((domain) => domain.trim())

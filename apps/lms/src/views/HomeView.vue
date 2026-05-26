@@ -508,6 +508,7 @@ onBeforeUnmount(() => {
             <Download :size="18" aria-hidden="true" />
             Download App
           </button>
+          <RouterLink class="button button-secondary" to="/catalog">Browse Courses</RouterLink>
         </form>
 
         <p v-if="installMessage" class="install-message">{{ installMessage }}</p>

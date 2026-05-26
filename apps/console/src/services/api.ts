@@ -1,4 +1,4 @@
-import type { AuthSessionDTO, CourseDTO, TenantDTO } from '@soteria-forge/shared'
+import type { AuthSessionDTO, CourseBundleDTO, CourseDTO, ProductPackageDTO, TenantDTO } from '@soteria-forge/shared'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 
@@ -61,6 +61,36 @@ export const consoleApi = {
   publishCourse(id: string) {
     return request<{ course: CourseDTO }>(`/api/courses/${id}/publish`, {
       method: 'POST',
+    })
+  },
+  catalogPackages() {
+    return request<{ packages: ProductPackageDTO[] }>('/api/catalog/packages')
+  },
+  catalogBundles() {
+    return request<{ bundles: CourseBundleDTO[] }>('/api/catalog/bundles')
+  },
+  createPackage(payload: Partial<ProductPackageDTO>) {
+    return request<{ package: ProductPackageDTO }>('/api/superadmin/packages', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  createBundle(payload: Partial<CourseBundleDTO>) {
+    return request<{ bundle: CourseBundleDTO }>('/api/superadmin/course-bundles', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  convertTenantToDedicated(id: string, payload: { subdomain: string; billingStatus?: string }) {
+    return request<{ tenant: TenantDTO }>(`/api/superadmin/tenants/${id}/convert-to-dedicated`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  billingOverride(id: string, payload: { billingStatus: string; seatLimit?: number }) {
+    return request<{ tenant: TenantDTO }>(`/api/superadmin/tenants/${id}/billing-override`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     })
   },
 }

@@ -21,6 +21,11 @@ export async function resolveTenant(req: Request, res: Response, next: NextFunct
     slug: tenant.slug,
     domains: tenant.domains,
     status: tenant.status,
+    mode: tenant.mode ?? 'dedicated',
+    billingStatus: tenant.billingStatus ?? 'none',
+    seatLimit: tenant.seatLimit ?? undefined,
+    marketplaceOriginTenantId: tenant.marketplaceOriginTenantId?.toString(),
+    dedicatedSubdomain: tenant.dedicatedSubdomain ?? undefined,
     branding: {
       appName: tenant.branding.appName,
       logoUrl: tenant.branding.logoUrl ?? undefined,

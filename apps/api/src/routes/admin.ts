@@ -12,6 +12,7 @@ import {
   UserModel,
   XapiStatementModel,
 } from '../models/index.js'
+import { enforceSeatLimit } from '../utils/entitlements.js'
 import { serializeCertificate, serializeCompletion, serializeEnrollment, serializeUser } from '../utils/serialize.js'
 import { tenantQuery, requireTenant } from '../utils/tenantScope.js'
 
@@ -64,6 +65,13 @@ adminRouter.post(
       return
     }
 
+    try {
+      await enforceSeatLimit(req)
+    } catch (error) {
+      res.status(403).json({ error: error instanceof Error ? error.message : 'Seat limit exceeded' })
+      return
+    }
+
     const passwordHash = await bcrypt.hash(String(req.body.password ?? defaultInvitePassword), 12)
     const user = await UserModel.findOneAndUpdate(
       tenantQuery(req, { email }),
@@ -100,6 +108,13 @@ adminRouter.post(
     const rows = Array.isArray(req.body.users) ? req.body.users : []
     const imported = []
     const rejected = []
+
+    try {
+      await enforceSeatLimit(req, rows.length)
+    } catch (error) {
+      res.status(403).json({ error: error instanceof Error ? error.message : 'Seat limit exceeded' })
+      return
+    }
 
     for (const row of rows) {
       try {

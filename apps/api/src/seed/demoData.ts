@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { normalizeTenantSlug } from '@soteria-forge/shared'
 import { CourseModel, EnrollmentModel, TenantModel, UserModel } from '../models/index.js'
+import { ensureMarketplaceCatalog } from '../utils/marketplace.js'
 
 const demoPassword = 'SoteriaForgeDemo!2026'
 
@@ -14,6 +15,8 @@ export async function seedDemoData() {
         slug,
         domains: ['demo.localhost'],
         status: 'trial',
+        mode: 'dedicated',
+        billingStatus: 'manual',
         branding: {
           appName: 'Soteria Forge',
           primaryColor: '#1f3f86',
@@ -135,4 +138,6 @@ export async function seedDemoData() {
       { upsert: true, returnDocument: 'after' },
     )
   }
+
+  await ensureMarketplaceCatalog()
 }

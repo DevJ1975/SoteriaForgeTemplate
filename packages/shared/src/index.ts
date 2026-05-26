@@ -1,6 +1,11 @@
 export type TenantStatus = 'active' | 'trial' | 'suspended' | 'archived'
+export type TenantMode = 'marketplace' | 'dedicated'
+export type BillingStatus = 'none' | 'incomplete' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid' | 'manual'
 export type UserRole = 'learner' | 'manager' | 'admin' | 'superadmin'
 export type CourseStatus = 'draft' | 'published' | 'archived'
+export type CommerceStatus = 'draft' | 'active' | 'archived'
+export type SubscriptionStatus = 'incomplete' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid'
+export type MarketplaceOrderStatus = 'pending' | 'checkout-created' | 'completed' | 'canceled' | 'failed'
 export type LessonKind = 'video' | 'quiz' | 'game' | 'scorm' | 'document' | 'reflection' | 'practical-signoff'
 export type EnrollmentStatus = 'assigned' | 'in-progress' | 'completed' | 'overdue' | 'expired'
 export type AttemptStatus = 'started' | 'completed' | 'failed' | 'synced' | 'queued'
@@ -26,6 +31,11 @@ export type TenantDTO = {
   slug: string
   domains: string[]
   status: TenantStatus
+  mode: TenantMode
+  billingStatus: BillingStatus
+  seatLimit?: number
+  marketplaceOriginTenantId?: string
+  dedicatedSubdomain?: string
   branding: TenantBranding
   settings: TenantSettings
 }
@@ -142,6 +152,91 @@ export type AdminReportDTO = {
   }
   enrollments: EnrollmentDTO[]
   completions: CompletionDTO[]
+}
+
+export type ProductPackageDTO = {
+  id: string
+  name: string
+  slug: string
+  description: string
+  status: CommerceStatus
+  bundleIds: string[]
+  seatLimit: number
+  featureFlags: Record<string, boolean>
+  stripeProductId?: string
+  stripePriceId?: string
+  priceLabel?: string
+  buyerType: 'individual' | 'company' | 'both'
+  sortOrder: number
+}
+
+export type CourseBundleDTO = {
+  id: string
+  name: string
+  slug: string
+  description: string
+  category: string
+  status: CommerceStatus
+  courseIds: string[]
+  sortOrder: number
+}
+
+export type SubscriptionDTO = {
+  id: string
+  tenantId: string
+  buyerUserId: string
+  packageId: string
+  status: SubscriptionStatus
+  stripeCustomerId?: string
+  stripeSubscriptionId?: string
+  currentPeriodEnd?: string
+  cancelAtPeriodEnd: boolean
+}
+
+export type EntitlementDTO = {
+  id: string
+  tenantId: string
+  packageId: string
+  courseIds: string[]
+  seatLimit: number
+  features: Record<string, boolean>
+  source: 'stripe' | 'manual' | 'trial' | 'demo'
+}
+
+export type MarketplaceOrderDTO = {
+  id: string
+  tenantId?: string
+  packageId: string
+  buyerEmail: string
+  buyerName: string
+  buyerType: 'individual' | 'company'
+  companyName?: string
+  seatCount: number
+  status: MarketplaceOrderStatus
+  stripeCheckoutSessionId?: string
+}
+
+export type CatalogDTO = {
+  packages: ProductPackageDTO[]
+  bundles: CourseBundleDTO[]
+  courses: CourseDTO[]
+}
+
+export type CheckoutSessionInput = {
+  packageSlug: string
+  buyerType: 'individual' | 'company'
+  buyerName: string
+  buyerEmail: string
+  companyName?: string
+  seatCount?: number
+  successUrl?: string
+  cancelUrl?: string
+}
+
+export type CheckoutSessionDTO = {
+  checkoutUrl: string
+  mode: 'stripe' | 'configuration-required'
+  order: MarketplaceOrderDTO
 }
 
 export type CreateUserInput = {

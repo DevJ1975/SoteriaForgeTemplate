@@ -55,6 +55,8 @@ export const useSessionStore = defineStore('session', {
           slug: 'demo',
           domains: [],
           status: 'trial',
+          mode: 'dedicated',
+          billingStatus: 'manual',
           branding: {
             appName: 'Soteria Forge',
             primaryColor: '#1f3f86',

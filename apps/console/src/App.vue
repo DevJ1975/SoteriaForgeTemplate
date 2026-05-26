@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { BookOpenCheck, Building2, CopyPlus, FileStack, LibraryBig, RadioTower, ShieldCheck, WandSparkles } from '@lucide/vue'
-import { normalizeTenantSlug, type CourseDTO, type TenantDTO } from '@soteria-forge/shared'
+import { normalizeTenantSlug, type CourseDTO, type ProductPackageDTO, type TenantDTO } from '@soteria-forge/shared'
 import { consoleApi } from './services/api'
 
 const tenantName = ref('Acme Industrial Services')
@@ -14,16 +14,29 @@ const tenantLoginSlug = ref('demo')
 const status = ref('Sign in to manage tenants and course drafts.')
 const isLoggedIn = ref(Boolean(localStorage.getItem('soteria-forge-console:token')))
 const tenants = ref<TenantDTO[]>([])
+const packages = ref<ProductPackageDTO[]>([])
 const selectedTenantSlug = ref('demo')
+const selectedTenantId = computed(() => tenants.value.find((tenant) => tenant.slug === selectedTenantSlug.value)?.id ?? '')
+const dedicatedSubdomain = ref('')
 const savedCourse = ref<CourseDTO | null>(null)
+const packageDraft = ref({
+  name: 'Starter',
+  slug: 'starter',
+  description: 'Monthly access for solo learners and small teams.',
+  seatLimit: 3,
+  stripePriceId: '',
+  priceLabel: 'Configure Stripe price',
+})
 
 const tenantPreview = computed<TenantDTO>(() => ({
   id: 'preview',
   name: tenantName.value,
-  slug: tenantSlug.value,
-  domains: [`${tenantSlug.value}.soteriaforge.com`],
-  status: 'trial',
-  branding: {
+    slug: tenantSlug.value,
+    domains: [`${tenantSlug.value}.soteriaforge.com`],
+    status: 'trial',
+    mode: 'dedicated',
+    billingStatus: 'manual',
+    branding: {
     appName: tenantName.value,
     primaryColor: '#1f3f86',
     accentColor: '#c9a84e',
@@ -91,8 +104,9 @@ async function login() {
 }
 
 async function loadTenants() {
-  const response = await consoleApi.tenants()
+  const [response, packageResponse] = await Promise.all([consoleApi.tenants(), consoleApi.catalogPackages()])
   tenants.value = response.tenants
+  packages.value = packageResponse.packages
   selectedTenantSlug.value = tenants.value[0]?.slug ?? 'demo'
 }
 
@@ -128,6 +142,33 @@ async function publishDraftCourse() {
   status.value = `Published: ${response.course.title}`
 }
 
+async function savePackage() {
+  status.value = 'Saving marketplace package'
+  const response = await consoleApi.createPackage({
+    ...packageDraft.value,
+    status: 'active',
+    buyerType: 'both',
+    featureFlags: {
+      certificates: true,
+      offlineMode: true,
+      managerReports: packageDraft.value.seatLimit > 3,
+    },
+  })
+  status.value = `Saved package: ${response.package.name}`
+  packages.value = [response.package, ...packages.value]
+}
+
+async function convertSelectedTenant() {
+  if (!selectedTenantId.value) return
+  status.value = 'Converting tenant to dedicated mode'
+  const response = await consoleApi.convertTenantToDedicated(selectedTenantId.value, {
+    subdomain: dedicatedSubdomain.value || selectedTenantSlug.value,
+    billingStatus: 'manual',
+  })
+  status.value = `Converted ${response.tenant.name} to dedicated tenant mode`
+  await loadTenants()
+}
+
 onMounted(() => {
   if (isLoggedIn.value) {
     void loadTenants().catch((error) => {
@@ -147,6 +188,7 @@ onMounted(() => {
       <nav>
         <button class="nav-active" type="button"><Building2 :size="18" /> Tenants</button>
         <button type="button"><LibraryBig :size="18" /> Global Library</button>
+        <button type="button"><ShieldCheck :size="18" /> Packages</button>
         <button type="button"><WandSparkles :size="18" /> Course Creator</button>
         <button type="button"><RadioTower :size="18" /> Sync Health</button>
       </nav>
@@ -208,6 +250,36 @@ onMounted(() => {
               <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.slug">{{ tenant.name }}</option>
             </select>
           </label>
+          <label>
+            Dedicated subdomain
+            <input v-model="dedicatedSubdomain" placeholder="client-subdomain" />
+          </label>
+          <button class="secondary-action" type="button" :disabled="!selectedTenantId" @click="convertSelectedTenant">
+            Convert To Dedicated Tenant
+          </button>
+        </article>
+
+        <article class="panel">
+          <h2>Marketplace package</h2>
+          <label>
+            Package name
+            <input v-model="packageDraft.name" />
+          </label>
+          <label>
+            Stripe price ID
+            <input v-model="packageDraft.stripePriceId" placeholder="price_..." />
+          </label>
+          <label>
+            Seat limit
+            <input v-model.number="packageDraft.seatLimit" min="1" type="number" />
+          </label>
+          <label>
+            Package description
+            <textarea v-model="packageDraft.description" rows="5"></textarea>
+          </label>
+          <button class="primary-action" type="button" :disabled="!isLoggedIn" @click="savePackage">
+            Save Package
+          </button>
         </article>
 
         <article class="panel">
@@ -256,6 +328,17 @@ onMounted(() => {
             <Building2 :size="16" aria-hidden="true" />
             <span>{{ tenant.name }}</span>
             <small>{{ tenant.slug }}</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="tenant-list panel">
+        <h2>Marketplace packages</h2>
+        <div class="module-list">
+          <div v-for="productPackage in packages" :key="productPackage.id">
+            <ShieldCheck :size="16" aria-hidden="true" />
+            <span>{{ productPackage.name }}</span>
+            <small>{{ productPackage.seatLimit }} seats · {{ productPackage.priceLabel }}</small>
           </div>
         </div>
       </section>

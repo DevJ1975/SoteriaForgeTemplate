@@ -3,12 +3,17 @@ import type {
   AssignCourseInput,
   AuthSessionDTO,
   CertificateDTO,
+  CheckoutSessionDTO,
+  CheckoutSessionInput,
   CompletionResultDTO,
   CompletionDTO,
+  CourseBundleDTO,
   CourseDTO,
   CreateUserInput,
+  EntitlementDTO,
   EnrollmentDTO,
   ImportUsersInput,
+  ProductPackageDTO,
   ScormRuntimeDTO,
   ScormRuntimeState,
   SyncRequest,
@@ -142,6 +147,35 @@ export const api = {
     return request<{ runtime: ScormRuntimeDTO }>(`/api/scorm/attempts/${attemptId}/runtime`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    })
+  },
+  catalogPackages() {
+    return request<{ packages: ProductPackageDTO[] }>('/api/catalog/packages')
+  },
+  catalogBundles() {
+    return request<{ bundles: CourseBundleDTO[] }>('/api/catalog/bundles')
+  },
+  catalogCourses() {
+    return request<{ courses: CourseDTO[] }>('/api/catalog/courses')
+  },
+  checkoutSession(payload: CheckoutSessionInput) {
+    return request<CheckoutSessionDTO>('/api/checkout/session', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  billingSubscription() {
+    return request<{
+      subscription: unknown
+      entitlement: EntitlementDTO | null
+      package: ProductPackageDTO | null
+      seatUsage: { used: number; limit: number }
+    }>('/api/billing/subscription')
+  },
+  billingPortal(returnUrl: string) {
+    return request<{ mode: 'stripe' | 'configuration-required'; portalUrl: string | null }>('/api/billing/portal-session', {
+      method: 'POST',
+      body: JSON.stringify({ returnUrl }),
     })
   },
 }

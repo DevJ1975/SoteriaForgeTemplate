@@ -3,6 +3,7 @@ import { requireAuth, requireRoles } from '../middleware/auth.js'
 import { auditAction } from '../middleware/audit.js'
 import { asyncHandler } from '../middleware/errors.js'
 import { CourseModel, EnrollmentModel } from '../models/index.js'
+import { accessibleCourseFilter } from '../utils/entitlements.js'
 import { serializeCourse, serializeEnrollment } from '../utils/serialize.js'
 import { tenantQuery } from '../utils/tenantScope.js'
 
@@ -13,8 +14,12 @@ coursesRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const canSeeDrafts = req.user?.roles.includes('admin') || req.user?.roles.includes('superadmin')
+    const entitlementFilter = await accessibleCourseFilter(req)
     const courses = await CourseModel.find(
-      tenantQuery(req, canSeeDrafts ? { status: { $ne: 'archived' } } : { status: 'published' }),
+      tenantQuery(req, {
+        ...(canSeeDrafts ? { status: { $ne: 'archived' } } : { status: 'published' }),
+        ...entitlementFilter,
+      }),
     ).sort({ updatedAt: -1 })
     const enrollments = req.user
       ? await EnrollmentModel.find(tenantQuery(req, { userId: req.user.mongoId }))
@@ -31,7 +36,10 @@ coursesRouter.get(
   '/:id',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const course = await CourseModel.findOne(tenantQuery(req, { _id: req.params.id, status: { $ne: 'archived' } }))
+    const entitlementFilter = await accessibleCourseFilter(req)
+    const course = await CourseModel.findOne(
+      tenantQuery(req, { status: { $ne: 'archived' }, $and: [{ _id: req.params.id }, entitlementFilter] }),
+    )
 
     if (!course) {
       res.status(404).json({ error: 'Course not found' })

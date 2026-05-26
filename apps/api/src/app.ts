@@ -12,12 +12,17 @@ import { resolveTenant } from './middleware/tenant.js'
 import { adminRouter } from './routes/admin.js'
 import { attemptsRouter } from './routes/attempts.js'
 import { authRouter } from './routes/auth.js'
+import { billingRouter } from './routes/billing.js'
+import { catalogRouter } from './routes/catalog.js'
+import { checkoutRouter } from './routes/checkout.js'
 import { completionsRouter } from './routes/completions.js'
 import { coursesRouter } from './routes/courses.js'
 import { enrollmentsRouter } from './routes/enrollments.js'
+import { entitlementsRouter } from './routes/entitlements.js'
 import { healthRouter } from './routes/health.js'
 import { meRouter } from './routes/me.js'
 import { scormRouter } from './routes/scorm.js'
+import { stripeWebhookRouter } from './routes/stripeWebhook.js'
 import { superadminRouter } from './routes/superadmin.js'
 import { syncRouter } from './routes/sync.js'
 import { tenantRouter } from './routes/tenant.js'
@@ -41,12 +46,15 @@ app.use(
     },
   }),
 )
-app.use(express.json())
 app.use(cookieParser())
 app.use(morgan('dev'))
 
 app.use('/api/health', healthRouter)
+app.use('/api/stripe', ensureDatabase, express.raw({ type: 'application/json' }), stripeWebhookRouter)
+app.use(express.json())
 app.use(ensureDatabase)
+app.use('/api/catalog', catalogRouter)
+app.use('/api/checkout', checkoutRouter)
 app.use(resolveTenant)
 app.use(attachUser)
 app.use(auditResponse)
@@ -59,6 +67,8 @@ app.use('/api/attempts', attemptsRouter)
 app.use('/api/completions', completionsRouter)
 app.use('/api/sync', syncRouter)
 app.use('/api/scorm', scormRouter)
+app.use('/api/billing', billingRouter)
+app.use('/api/entitlements', entitlementsRouter)
 app.use('/api/admin', adminRouter)
 app.use('/api/superadmin', superadminRouter)
 app.use('/xapi', xapiRouter)
