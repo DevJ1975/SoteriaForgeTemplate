@@ -23,11 +23,11 @@ import { quizQuestions, seededLeaderboardEntries, teamProgress, trainingPaths } 
 import type { LeaderboardEntry, Lesson, TrainingPath } from '../data/training'
 import type { SprintGameResult } from '../game/firstImpressionSprint/types'
 import { api } from '../services/api'
-import { createLessonStatement } from '../learning/xapi'
+import { createLessonStatement, createVideoStatement } from '../learning/xapi'
 import { cacheCourses, getCachedCourses } from '../offline/db'
 import { enqueueSyncItem, flushSyncQueue } from '../offline/sync'
 import { useSessionStore } from '../stores/session'
-import type { CourseDTO, CourseLessonDTO, EnrollmentDTO, QuizQuestionDTO } from '@soteria-forge/shared'
+import type { CertificateDTO, CourseDTO, CourseLessonDTO, EnrollmentDTO, QuizQuestionDTO } from '@soteria-forge/shared'
 
 type Section = 'dashboard' | 'learn' | 'games' | 'leaderboard' | 'goals' | 'admin'
 
@@ -41,6 +41,8 @@ type LmsLesson = Lesson & {
   quizQuestions?: QuizQuestionDTO[]
   transcript?: string
   offlineSummary?: string
+  vimeoUrl?: string
+  assetId?: string
 }
 
 type LmsTrainingPath = Omit<TrainingPath, 'lessons'> & {
@@ -54,6 +56,7 @@ type BeforeInstallPromptEvent = Event & {
 }
 
 const FirstImpressionSprint = defineAsyncComponent(() => import('../components/FirstImpressionSprint.vue'))
+const VimeoLessonPlayer = defineAsyncComponent(() => import('../components/VimeoLessonPlayer.vue'))
 const session = useSessionStore()
 
 const savedName = localStorage.getItem('soteria-forge:name') ?? ''
@@ -68,6 +71,7 @@ const selectedLessonId = ref(trainingPaths[0].lessons[1].id)
 const completedLessons = ref<string[]>(['professional-first-impressions'])
 const apiCourses = ref<CourseDTO[]>([])
 const apiEnrollments = ref<EnrollmentDTO[]>([])
+const certificates = ref<CertificateDTO[]>([])
 const courseSource = ref<'seed' | 'api' | 'cache'>('seed')
 const quizAnswers = ref<Record<string, string>>({})
 const firstImpressionResult = ref<SprintGameResult | null>(null)
@@ -119,6 +123,8 @@ const gameScore = computed(() => {
   return firstImpressionResult.value?.completed ? 1 : 0
 })
 
+const certificateCount = computed(() => certificates.value.length)
+
 const totalLessonCount = computed(() => {
   return activeTrainingPaths.value.reduce((sum, path) => sum + path.lessons.length, 0)
 })
@@ -156,13 +162,15 @@ function courseLessonToLesson(course: CourseDTO, lesson: CourseLessonDTO): LmsLe
     id: lesson.id,
     courseId: course.id,
     title: lesson.title,
-    type: lesson.kind === 'game' || lesson.kind === 'quiz' || lesson.kind === 'video' ? lesson.kind : 'quiz',
+    type: lesson.kind,
     duration: `${lesson.durationMinutes} min`,
     description: lesson.description,
     status: 'current',
     quizQuestions: lesson.quizQuestions,
     transcript: lesson.transcript,
     offlineSummary: lesson.offlineSummary,
+    vimeoUrl: lesson.vimeoUrl,
+    assetId: lesson.assetId,
   }
 }
 
@@ -291,13 +299,22 @@ async function recordLessonCompletion(lesson: LmsLesson) {
   })
 
   try {
-    await api.completeLesson({
+    const result = await api.completeLesson({
       courseId,
       lessonId: lesson.id,
       source: navigator.onLine ? 'online' : 'offline-capable',
       idempotencyKey,
     })
     await api.submitXapiStatement(statement)
+    if (result.enrollment) {
+      apiEnrollments.value = [
+        ...apiEnrollments.value.filter((enrollment) => enrollment.id !== result.enrollment?.id),
+        result.enrollment,
+      ]
+    }
+    if (result.certificate && !certificates.value.some((certificate) => certificate.id === result.certificate?.id)) {
+      certificates.value = [result.certificate, ...certificates.value]
+    }
     syncMessage.value = 'Completion synced.'
   } catch {
     await enqueueSyncItem({
@@ -321,11 +338,62 @@ async function recordLessonCompletion(lesson: LmsLesson) {
   }
 }
 
+function canTrackVimeo(lesson: LmsLesson) {
+  if (!lesson.vimeoUrl || !navigator.onLine) return false
+  try {
+    const pathname = new URL(lesson.vimeoUrl, window.location.origin).pathname
+    return !/\/0+$/.test(pathname)
+  } catch {
+    return false
+  }
+}
+
+async function handleVideoTrack(event: {
+  verb: 'played' | 'paused' | 'progressed' | 'completed'
+  seconds?: number
+  duration?: number
+  percent?: number
+}) {
+  const user = session.user
+  if (!user) return
+
+  const statement = createVideoStatement({
+    tenantId: session.tenant?.id ?? 'offline-demo',
+    user,
+    verb: event.verb,
+    objectId: selectedLesson.value.id,
+    name: selectedLesson.value.title,
+    description: selectedLesson.value.description,
+    seconds: event.seconds,
+    duration: event.duration,
+    percent: event.percent,
+  })
+
+  try {
+    await api.submitXapiStatement(statement)
+  } catch {
+    await enqueueSyncItem({
+      tenantId: session.tenant?.id ?? 'offline-demo',
+      userId: user.id,
+      type: 'xapi-statement',
+      payload: statement,
+    })
+  }
+}
+
 async function warmOfflineCache() {
   try {
     const response = await api.courses()
     apiCourses.value = response.courses
     apiEnrollments.value = response.enrollments
+    const completionResponse = await api.completions().catch(() => ({ completions: [] }))
+    completedLessons.value = Array.from(
+      new Set([
+        ...completedLessons.value,
+        ...completionResponse.completions.map((completion) => completion.lessonId).filter((lessonId): lessonId is string => Boolean(lessonId)),
+      ]),
+    )
+    certificates.value = await api.myCertificates().then((result) => result.certificates).catch(() => [])
     await cacheCourses(response.courses)
     courseSource.value = 'api'
     if (response.courses[0] && !response.courses.some((course) => course.id === selectedPathId.value)) {
@@ -353,6 +421,7 @@ async function syncFieldQueue() {
   try {
     const result = await flushSyncQueue()
     syncMessage.value = `${result.accepted.length} queued event${result.accepted.length === 1 ? '' : 's'} synced.`
+    await warmOfflineCache()
   } catch {
     syncMessage.value = 'Still offline. Field activity remains queued.'
   }
@@ -548,6 +617,10 @@ onBeforeUnmount(() => {
             <strong>{{ gameScore }}/1</strong>
           </article>
           <article class="metric-card">
+            <span>Certificates</span>
+            <strong>{{ certificateCount }}</strong>
+          </article>
+          <article class="metric-card">
             <span>Leaderboard rank</span>
             <strong>{{ currentPlayerRank ? `#${currentPlayerRank}` : 'Play' }}</strong>
           </article>
@@ -600,7 +673,14 @@ onBeforeUnmount(() => {
 
           <div class="lesson-body">
             <div v-if="selectedLesson.type === 'video'" class="training-video">
-              <div v-if="selectedLesson.id === 'professional-first-impressions'" class="synthesia-video">
+              <VimeoLessonPlayer
+                v-if="canTrackVimeo(selectedLesson) && selectedLesson.vimeoUrl"
+                :key="selectedLesson.id"
+                :title="selectedLesson.title"
+                :url="selectedLesson.vimeoUrl"
+                @track="handleVideoTrack"
+              />
+              <div v-else-if="selectedLesson.id === 'professional-first-impressions'" class="synthesia-video">
                 <button
                   v-if="!activeVideoLessons[selectedLesson.id]"
                   class="video-thumbnail"
@@ -636,6 +716,25 @@ onBeforeUnmount(() => {
                   <li>Confidence grows when your actions match your commitments.</li>
                 </ul>
               </div>
+            </div>
+
+            <div v-else-if="selectedLesson.type === 'scorm'" class="quiz-stack">
+              <article class="question-block">
+                <h3>SCORM launch ready</h3>
+                <p>
+                  This lesson is configured for the Soteria Forge SCORM runtime. Launch packaging will activate when a
+                  SCORM asset is attached to this lesson.
+                </p>
+                <p v-if="selectedLesson.offlineSummary" class="coaching-note">{{ selectedLesson.offlineSummary }}</p>
+              </article>
+            </div>
+
+            <div v-else-if="selectedLesson.type === 'document' || selectedLesson.type === 'reflection' || selectedLesson.type === 'practical-signoff'" class="quiz-stack">
+              <article class="question-block">
+                <h3>{{ selectedLesson.title }}</h3>
+                <p>{{ selectedLesson.description }}</p>
+                <p v-if="selectedLesson.offlineSummary" class="coaching-note">{{ selectedLesson.offlineSummary }}</p>
+              </article>
             </div>
 
             <div v-else-if="selectedLesson.type === 'quiz'" class="quiz-stack">

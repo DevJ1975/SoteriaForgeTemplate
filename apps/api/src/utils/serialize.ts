@@ -3,6 +3,7 @@ import type {
   CompletionDTO,
   CourseDTO,
   EnrollmentDTO,
+  ScormRuntimeDTO,
   TenantDTO,
   UserDTO,
   UserRole,
@@ -101,5 +102,27 @@ export function serializeCertificate(certificate: any): CertificateDTO {
     issuedAt: certificate.issuedAt?.toISOString?.() ?? new Date().toISOString(),
     expiresAt: certificate.expiresAt?.toISOString?.(),
     revokedAt: certificate.revokedAt?.toISOString?.(),
+  }
+}
+
+export function serializeScormRuntime(runtime: any): ScormRuntimeDTO {
+  return {
+    id: runtime.id,
+    tenantId: runtime.tenantId.toString(),
+    attemptId: runtime.attemptId.toString(),
+    packageId: runtime.packageId.toString(),
+    version: runtime.version,
+    lessonStatus: runtime.lessonStatus,
+    completionStatus: runtime.completionStatus,
+    successStatus: runtime.successStatus,
+    scoreRaw: runtime.scoreRaw,
+    scoreMin: runtime.scoreMin,
+    scoreMax: runtime.scoreMax,
+    suspendData: runtime.suspendData,
+    location: runtime.location,
+    sessionTime: runtime.sessionTime,
+    totalTime: runtime.totalTime,
+    interactions: runtime.interactions ?? [],
+    updatedAt: runtime.updatedAt?.toISOString?.() ?? new Date().toISOString(),
   }
 }

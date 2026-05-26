@@ -28,7 +28,10 @@ export async function attachUser(req: Request, _: Response, next: NextFunction) 
     const user = await UserModel.findOne({ _id: claims.sub, tenantId: claims.tenantId })
 
     if (user) {
-      if (req.tenant && req.tenant.id !== claims.tenantId) {
+      const roles = user.roles as UserRole[]
+      const canCrossTenant = roles.includes('superadmin')
+
+      if (req.tenant && req.tenant.id !== claims.tenantId && !canCrossTenant) {
         next()
         return
       }
@@ -39,7 +42,7 @@ export async function attachUser(req: Request, _: Response, next: NextFunction) 
         tenantId: user.tenantId.toString(),
         email: user.email,
         name: user.name,
-        roles: user.roles as UserRole[],
+        roles,
         jobTitle: user.jobTitle ?? undefined,
         department: user.department ?? undefined,
         crew: user.crew ?? undefined,

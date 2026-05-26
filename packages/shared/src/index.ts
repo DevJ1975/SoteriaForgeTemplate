@@ -111,6 +111,12 @@ export type CompletionDTO = {
   source: string
 }
 
+export type CompletionResultDTO = {
+  completion: CompletionDTO
+  enrollment?: EnrollmentDTO
+  certificate?: CertificateDTO | null
+}
+
 export type CertificateDTO = {
   id: string
   tenantId: string
@@ -218,6 +224,26 @@ export type SyncResponse = {
   rejected: Array<{ idempotencyKey: string; reason: string }>
 }
 
+export type ScormRuntimeDTO = {
+  id: string
+  tenantId: string
+  attemptId: string
+  packageId: string
+  version: ScormRuntimeVersion
+  lessonStatus?: string
+  completionStatus?: string
+  successStatus?: string
+  scoreRaw?: number
+  scoreMin?: number
+  scoreMax?: number
+  suspendData?: string
+  location?: string
+  sessionTime?: string
+  totalTime?: string
+  interactions: Array<Record<string, unknown>>
+  updatedAt: string
+}
+
 export type ScormRuntimeVersion = '1.2' | '2004'
 
 export type ScormRuntimeState = {
@@ -291,6 +317,29 @@ export function requireStringField(payload: Record<string, unknown>, field: stri
 
 export function isEmailLike(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+export function isCourseCompleteFromRequiredLessons(requiredLessonIds: string[], completedLessonIds: string[]) {
+  if (!requiredLessonIds.length) return false
+  const completed = new Set(completedLessonIds)
+  return requiredLessonIds.every((lessonId) => completed.has(lessonId))
+}
+
+export function calculateCourseProgress(requiredLessonIds: string[], completedLessonIds: string[]) {
+  if (!requiredLessonIds.length) return 0
+  const completed = new Set(completedLessonIds)
+  const completedRequiredLessons = requiredLessonIds.filter((lessonId) => completed.has(lessonId)).length
+  return Math.min(100, Math.round((completedRequiredLessons / requiredLessonIds.length) * 100))
+}
+
+export function normalizeScormNumber(value: unknown) {
+  if (value === undefined || value === null || value === '') return undefined
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : undefined
+}
+
+export function isScormCompletionStatus(value: unknown) {
+  return ['completed', 'passed'].includes(String(value ?? '').toLowerCase())
 }
 
 export function createXapiStatement(input: Omit<XapiStatement, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) {

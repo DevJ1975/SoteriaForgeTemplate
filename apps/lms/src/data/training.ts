@@ -1,4 +1,4 @@
-export type LessonType = 'video' | 'quiz' | 'game'
+export type LessonType = 'video' | 'quiz' | 'game' | 'scorm' | 'document' | 'reflection' | 'practical-signoff'
 
 export type Lesson = {
   id: string

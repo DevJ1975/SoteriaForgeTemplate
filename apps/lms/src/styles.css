@@ -427,6 +427,21 @@ input {
   border: 0;
 }
 
+.vimeo-player-shell {
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px solid #d8e2ef;
+  border-radius: 8px;
+  background: #111827;
+}
+
+.vimeo-player,
+.vimeo-player iframe {
+  width: 100%;
+  height: 100%;
+}
+
 .video-thumbnail {
   position: absolute;
   inset: 0;

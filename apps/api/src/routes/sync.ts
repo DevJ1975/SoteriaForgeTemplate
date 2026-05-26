@@ -2,7 +2,8 @@ import { Router } from 'express'
 import type { SyncResponse } from '@soteria-forge/shared'
 import { requireAuth } from '../middleware/auth.js'
 import { asyncHandler } from '../middleware/errors.js'
-import { AttemptModel, CompletionModel, ScormRuntimeModel, XapiStatementModel } from '../models/index.js'
+import { AttemptModel, ScormRuntimeModel, XapiStatementModel } from '../models/index.js'
+import { recordCompletionAndProgress } from '../utils/completionRules.js'
 import { duplicateKey } from '../utils/idempotency.js'
 
 export const syncRouter = Router()
@@ -39,12 +40,14 @@ syncRouter.post(
             ...item.payload,
           })
         } else if (item.type === 'completion') {
-          await CompletionModel.create({
+          const payload = item.payload as Record<string, unknown>
+          await recordCompletionAndProgress({
             tenantId: req.tenant?.mongoId,
             userId: req.user?.mongoId,
-            idempotencyKey: item.idempotencyKey,
+            courseId: String(payload.courseId ?? ''),
+            lessonId: payload.lessonId ? String(payload.lessonId) : undefined,
             source: 'offline-sync',
-            ...item.payload,
+            idempotencyKey: item.idempotencyKey,
           })
         } else if (item.type === 'scorm-runtime') {
           await ScormRuntimeModel.create({

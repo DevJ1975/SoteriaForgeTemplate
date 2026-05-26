@@ -3,10 +3,14 @@ import type {
   AssignCourseInput,
   AuthSessionDTO,
   CertificateDTO,
+  CompletionResultDTO,
+  CompletionDTO,
   CourseDTO,
   CreateUserInput,
   EnrollmentDTO,
   ImportUsersInput,
+  ScormRuntimeDTO,
+  ScormRuntimeState,
   SyncRequest,
   SyncResponse,
   TenantDTO,
@@ -64,10 +68,13 @@ export const api = {
     return request<{ course: CourseDTO }>(`/api/courses/${id}`)
   },
   completeLesson(payload: Record<string, unknown>) {
-    return request('/api/completions', {
+    return request<CompletionResultDTO>('/api/completions', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+  },
+  completions() {
+    return request<{ completions: CompletionDTO[] }>('/api/completions')
   },
   submitAttempt(payload: Record<string, unknown>) {
     return request('/api/attempts', {
@@ -119,5 +126,22 @@ export const api = {
   },
   adminCertificates() {
     return request<{ certificates: CertificateDTO[] }>('/api/admin/certificates')
+  },
+  myCertificates() {
+    return request<{ certificates: CertificateDTO[] }>('/api/me/certificates')
+  },
+  scormLaunch(packageId: string) {
+    return request<{ launchUrl: string; packageId: string; runtimeApi: { scorm12: string; scorm2004: string } }>(
+      `/api/scorm/packages/${packageId}/launch`,
+    )
+  },
+  scormRuntime(attemptId: string) {
+    return request<{ runtime: ScormRuntimeDTO | null }>(`/api/scorm/attempts/${attemptId}/runtime`)
+  },
+  saveScormRuntime(attemptId: string, payload: ScormRuntimeState) {
+    return request<{ runtime: ScormRuntimeDTO }>(`/api/scorm/attempts/${attemptId}/runtime`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
   },
 }

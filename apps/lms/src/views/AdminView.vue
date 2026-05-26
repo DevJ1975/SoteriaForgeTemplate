@@ -42,12 +42,38 @@ function parseRoles(value: string): UserRole[] {
     .filter((role): role is UserRole => ['learner', 'manager', 'admin', 'superadmin'].includes(role))
 }
 
+function parseCsvLine(line: string) {
+  const cells: string[] = []
+  let cell = ''
+  let quoted = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]
+    const nextCharacter = line[index + 1]
+
+    if (character === '"' && quoted && nextCharacter === '"') {
+      cell += '"'
+      index += 1
+    } else if (character === '"') {
+      quoted = !quoted
+    } else if (character === ',' && !quoted) {
+      cells.push(cell.trim())
+      cell = ''
+    } else {
+      cell += character
+    }
+  }
+
+  cells.push(cell.trim())
+  return cells
+}
+
 function parseCsvUsers() {
   const [headerLine, ...lines] = csvDraft.value.split(/\r?\n/).filter(Boolean)
-  const headers = headerLine.split(',').map((header) => header.trim())
+  const headers = parseCsvLine(headerLine).map((header) => header.trim())
 
   return lines.map((line) => {
-    const cells = line.split(',').map((cell) => cell.trim())
+    const cells = parseCsvLine(line)
     const row = Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? '']))
     return {
       name: row.name,
