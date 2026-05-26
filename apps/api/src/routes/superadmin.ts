@@ -55,8 +55,8 @@ superadminRouter.post(
       branding: {
         appName: req.body.branding?.appName ?? req.body.name,
         logoUrl: req.body.branding?.logoUrl,
-        primaryColor: req.body.branding?.primaryColor ?? '#1f3f86',
-        accentColor: req.body.branding?.accentColor ?? '#c9a84e',
+        primaryColor: req.body.branding?.primaryColor ?? '#3DA9FC',
+        accentColor: req.body.branding?.accentColor ?? '#FF6B1F',
       },
       settings: {
         offlineEnabled: req.body.settings?.offlineEnabled ?? true,

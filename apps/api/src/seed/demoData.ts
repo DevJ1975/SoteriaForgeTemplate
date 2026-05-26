@@ -19,8 +19,8 @@ export async function seedDemoData() {
         billingStatus: 'manual',
         branding: {
           appName: 'Soteria Forge',
-          primaryColor: '#1f3f86',
-          accentColor: '#c9a84e',
+          primaryColor: '#3DA9FC',
+          accentColor: '#FF6B1F',
         },
         settings: {
           offlineEnabled: true,

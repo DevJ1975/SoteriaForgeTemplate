@@ -39,8 +39,8 @@ const tenantPreview = computed<TenantDTO>(() => ({
     billingStatus: 'manual',
     branding: {
     appName: tenantName.value,
-    primaryColor: '#1f3f86',
-    accentColor: '#c9a84e',
+    primaryColor: '#3DA9FC',
+    accentColor: '#FF6B1F',
   },
   settings: {
     offlineEnabled: true,

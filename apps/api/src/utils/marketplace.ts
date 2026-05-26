@@ -264,8 +264,8 @@ export async function createMarketplaceTenantAndBuyer(payload: CheckoutSessionIn
         seatLimit: productPackage.seatLimit,
         branding: {
           appName: payload.buyerType === 'company' ? payload.companyName || 'Soteria Forge' : 'Soteria Forge',
-          primaryColor: '#1f3f86',
-          accentColor: '#c9a84e',
+          primaryColor: '#3DA9FC',
+          accentColor: '#FF6B1F',
         },
         settings: {
           offlineEnabled: true,

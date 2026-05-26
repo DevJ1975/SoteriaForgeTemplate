@@ -24,8 +24,8 @@ const tenantBrandingSchema = new Schema(
   {
     appName: { type: String, required: true },
     logoUrl: String,
-    primaryColor: { type: String, default: '#1f3f86' },
-    accentColor: { type: String, default: '#c9a84e' },
+    primaryColor: { type: String, default: '#3DA9FC' },
+    accentColor: { type: String, default: '#FF6B1F' },
   },
   { _id: false },
 )
