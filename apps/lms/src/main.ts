@@ -7,6 +7,8 @@ import '@ionic/vue/css/core.css'
 import '@ionic/vue/css/normalize.css'
 import '@ionic/vue/css/structure.css'
 import '@ionic/vue/css/typography.css'
+import './theme/tokens.css'
+import './theme/soteria-forge.css'
 import './styles.css'
 
 createApp(App).use(IonicVue).use(createPinia()).use(router).mount('#app')

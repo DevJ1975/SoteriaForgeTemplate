@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { BookOpenCheck, Building2, CopyPlus, FileStack, LibraryBig, RadioTower, ShieldCheck, WandSparkles } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type ProductPackageDTO, type TenantDTO } from '@soteria-forge/shared'
+import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
 import { consoleApi } from './services/api'
 
 const tenantName = ref('Acme Industrial Services')
@@ -182,8 +183,7 @@ onMounted(() => {
   <main class="console-shell">
     <aside class="console-sidebar">
       <div class="brand-lockup">
-        <ShieldCheck :size="30" aria-hidden="true" />
-        <span>Soteria Forge</span>
+        <img :src="forgeLogo" alt="Soteria FORGE" />
       </div>
       <nav>
         <button class="nav-active" type="button"><Building2 :size="18" /> Tenants</button>

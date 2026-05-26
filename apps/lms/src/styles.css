@@ -1,24 +1,22 @@
 :root {
-  --brand-red: #d62027;
-  --brand-red-dark: #971b22;
-  --brand-gold: #c9a84e;
-  --brand-gold-soft: #f6eed4;
-  --brand-green: #2f7d69;
-  --brand-navy: #101a2e;
-  --brand-blue: #1f3f86;
-  --ink: #111827;
-  --muted: #5f6f86;
-  --page: #eef3f6;
-  --surface: #ffffff;
-  --surface-soft: #f8faf7;
-  --line: #d8e0e8;
-  --shadow-soft: 0 18px 54px rgb(16 26 46 / 10%);
-  --shadow-strong: 0 28px 80px rgb(16 26 46 / 18%);
+  --brand-red: var(--sf-color-danger);
+  --brand-red-dark: var(--sf-color-orange-800);
+  --brand-gold: var(--sf-color-orange);
+  --brand-gold-soft: var(--sf-color-orange-50);
+  --brand-green: var(--sf-color-success);
+  --brand-navy: var(--sf-color-ink);
+  --brand-blue: var(--sf-color-blue);
+  --ink: var(--sf-text-primary);
+  --muted: var(--sf-text-secondary);
+  --page: var(--sf-bg-base);
+  --surface: var(--sf-bg-surface);
+  --surface-soft: var(--sf-bg-subtle);
+  --line: var(--sf-border-default);
+  --shadow-soft: var(--sf-shadow-md);
+  --shadow-strong: var(--sf-shadow-xl);
   color: var(--ink);
   background: var(--page);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: var(--sf-font-body);
   font-synthesis: none;
   line-height: 1.5;
   text-rendering: optimizeLegibility;
@@ -31,15 +29,22 @@
 }
 
 html {
+  height: auto;
   min-height: 100%;
   background: var(--page);
 }
 
 body {
+  position: static;
   min-width: 320px;
+  height: auto;
   min-height: 100vh;
+  max-height: none;
   margin: 0;
   overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  touch-action: auto;
 }
 
 #app {
@@ -72,10 +77,10 @@ button {
     max(24px, env(safe-area-inset-bottom))
     max(24px, env(safe-area-inset-left));
   background:
-    linear-gradient(135deg, rgb(6 18 34 / 78%), rgb(18 58 73 / 70%)),
+    linear-gradient(135deg, rgb(14 26 46 / 82%), rgb(61 169 252 / 28), rgb(255 107 31 / 18)),
     url("./assets/login-warehouse.jpg")
       center / cover,
-    #102d4e;
+    var(--sf-color-ink);
 }
 
 .login-shell {
@@ -87,10 +92,10 @@ button {
 .login-card {
   width: 100%;
   padding: 36px;
-  border: 1px solid rgb(255 255 255 / 44%);
-  border-radius: 8px;
-  background: rgb(255 255 255 / 94%);
-  box-shadow: 0 30px 80px rgb(6 18 34 / 34%);
+  border: 1px solid rgb(255 255 255 / 38%);
+  border-radius: var(--sf-radius-lg);
+  background: rgb(245 244 239 / 95%);
+  box-shadow: var(--sf-shadow-xl);
   backdrop-filter: blur(8px);
 }
 
@@ -130,6 +135,7 @@ button {
   color: #111827;
   line-height: 1.04;
   letter-spacing: 0;
+  font-family: var(--sf-font-display);
 }
 
 .login-card h1 {
@@ -182,10 +188,19 @@ input {
   min-height: 46px;
   width: 100%;
   border: 1px solid #ccd5e1;
-  border-radius: 8px;
+  border-radius: var(--sf-radius-md);
   padding: 0 14px;
   color: #172033;
   background: #ffffff;
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+button:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
 }
 
 .button {
@@ -194,7 +209,7 @@ input {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  border-radius: 8px;
+  border-radius: var(--sf-radius-md);
   padding: 0 18px;
   cursor: pointer;
   font-weight: 800;
@@ -202,18 +217,18 @@ input {
 
 .button-primary {
   color: #ffffff;
-  background: #1f3f86;
+  background: var(--sf-color-blue-600);
 }
 
 .button-secondary {
-  color: #1f3f86;
-  background: #e8eefb;
+  color: var(--sf-color-ink);
+  background: var(--sf-color-blue-50);
 }
 
 .button-install {
-  border: 1px solid rgb(201 168 78 / 48%);
-  color: var(--brand-navy);
-  background: linear-gradient(135deg, #ffffff, var(--brand-gold-soft));
+  border: 1px solid rgb(255 107 31 / 30%);
+  color: var(--sf-color-ink);
+  background: var(--sf-color-orange-50);
 }
 
 .product-shell {

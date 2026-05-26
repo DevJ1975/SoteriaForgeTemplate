@@ -1,5 +1,5 @@
-const CACHE_NAME = 'soteria-forge-pwa-v1'
-const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/soteria-forge-pwa-192.png', '/icons/soteria-forge-pwa-512.png']
+const CACHE_NAME = 'soteria-forge-pwa-v2'
+const APP_SHELL = ['/', '/manifest.webmanifest', '/pwa/icon-192.png', '/pwa/icon-512.png', '/pwa/maskable-icon-512.png']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)))

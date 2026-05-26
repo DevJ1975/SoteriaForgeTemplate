@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 260" fill="none">
+  <g transform="translate(112 0)">
+  <rect x="18" y="14" width="14" height="68" rx="2" fill="#0E1A2E"></rect>
+  <rect x="18" y="14" width="60" height="14" rx="2" fill="#3DA9FC"></rect>
+  <rect x="64" y="14" width="14" height="14" rx="2" fill="#FF6B1F"></rect>
+  <rect x="18" y="41" width="42" height="14" rx="2" fill="#0E1A2E"></rect>
+  <rect x="66" y="41" width="14" height="14" rx="2" fill="#3DA9FC" opacity="0.55"></rect></g>
+  <text x="160" y="138" text-anchor="middle" font-family="Inter Tight, Inter, sans-serif" font-weight="400" font-size="20" letter-spacing="4.4" fill="#0E1A2E" opacity="0.85">SOTERIA</text>
+  <text x="160" y="176" text-anchor="middle" font-family="Inter Tight, Inter, sans-serif" font-weight="700" font-size="38" letter-spacing="-0.5" fill="#0E1A2E">FORGE</text>
+  <text x="160" y="214" text-anchor="middle" font-family="Inter Tight, Inter, sans-serif" font-weight="500" font-style="italic" font-size="13" fill="#0E1A2E" opacity="0.65">Foundations of Operational Safety</text>
+  <text x="160" y="232" text-anchor="middle" font-family="Inter Tight, Inter, sans-serif" font-weight="500" font-style="italic" font-size="13" fill="#0E1A2E" opacity="0.65">&amp; Human Factors</text>
+</svg>

@@ -19,6 +19,8 @@ import {
 } from '@lucide/vue'
 import lessonThumbnail from '../assets/lesson-thumbnail.svg'
 import templateLogo from '../assets/template-logo.svg'
+import templateLogoDark from '../assets/brand/logos/soteria-forge-horizontal-dark.svg'
+import SoteriaIcon from '../components/SoteriaIcon.vue'
 import { quizQuestions, seededLeaderboardEntries, teamProgress, trainingPaths } from '../data/training'
 import type { LeaderboardEntry, Lesson, TrainingPath } from '../data/training'
 import type { SprintGameResult } from '../game/firstImpressionSprint/types'
@@ -87,12 +89,12 @@ const goals = ref([
 ])
 
 const navItems = [
-  { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
-  { id: 'learn', label: 'Training', icon: BookOpen },
-  { id: 'games', label: 'Games', icon: Gamepad2 },
-  { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
-  { id: 'goals', label: 'Goals', icon: Goal },
-  { id: 'admin', label: 'Reports', icon: ChartNoAxesColumn },
+  { id: 'dashboard', label: 'Home', icon: 'dashboard' },
+  { id: 'learn', label: 'Training', icon: 'e-learning' },
+  { id: 'games', label: 'Games', icon: 'simulation' },
+  { id: 'leaderboard', label: 'Leaderboard', icon: 'assessment' },
+  { id: 'goals', label: 'Goals', icon: 'ready' },
+  { id: 'admin', label: 'Reports', icon: 'audit' },
 ] as const
 
 const activeTrainingPaths = computed<LmsTrainingPath[]>(() => {
@@ -521,7 +523,7 @@ onBeforeUnmount(() => {
   <main v-else class="product-shell">
     <aside class="sidebar" aria-label="Soteria Forge navigation">
       <div class="sidebar-brand">
-        <img :src="templateLogo" alt="Soteria Forge" />
+        <img :src="templateLogoDark" alt="Soteria Forge" />
         <span>Soteria Forge</span>
       </div>
 
@@ -534,7 +536,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="activeSection = item.id"
         >
-          <component :is="item.icon" :size="18" aria-hidden="true" />
+          <SoteriaIcon :name="item.icon" :size="18" decorative />
           {{ item.label }}
         </button>
       </nav>

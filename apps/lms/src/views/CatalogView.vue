@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowRight, BadgeCheck, Building2, Check, HardHat, ShieldCheck, UserRound } from '@lucide/vue'
+import { ArrowRight, Building2, Check, UserRound } from '@lucide/vue'
 import type { CourseDTO, ProductPackageDTO } from '@soteria-forge/shared'
 import templateLogo from '../assets/template-logo.svg'
+import SoteriaIcon from '../components/SoteriaIcon.vue'
 import { api } from '../services/api'
 
 const packages = ref<ProductPackageDTO[]>([])
@@ -19,9 +20,10 @@ const selectedPackage = computed(() => packages.value.find((productPackage) => p
 const visibleCourses = computed(() => courses.value.slice(0, 6))
 
 function packageIcon(slug: string) {
-  if (slug.includes('compliance')) return ShieldCheck
-  if (slug.includes('field') || slug.includes('dedicated')) return HardHat
-  return BadgeCheck
+  if (slug.includes('compliance')) return 'audit'
+  if (slug.includes('field')) return 'field-readiness'
+  if (slug.includes('dedicated')) return 'course-builder'
+  return 'e-learning'
 }
 
 async function loadCatalog() {
@@ -112,7 +114,7 @@ onMounted(loadCatalog)
           class="package-card"
           :class="{ selected: selectedPackageSlug === productPackage.slug }"
         >
-          <component :is="packageIcon(productPackage.slug)" :size="24" aria-hidden="true" />
+          <SoteriaIcon :name="packageIcon(productPackage.slug)" :size="28" decorative />
           <h3>{{ productPackage.name }}</h3>
           <p>{{ productPackage.description }}</p>
           <strong>{{ productPackage.priceLabel || 'Monthly subscription' }}</strong>

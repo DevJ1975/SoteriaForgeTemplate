@@ -5,6 +5,7 @@ import type { CertificateDTO, CourseDTO, EnrollmentDTO, UserDTO, UserRole } from
 import { api } from '../services/api'
 import { flushSyncQueue } from '../offline/sync'
 import { getQueuedItems } from '../offline/db'
+import SoteriaIcon from '../components/SoteriaIcon.vue'
 
 const report = ref<Record<string, number>>({
   users: 0,
@@ -224,11 +225,13 @@ onMounted(loadReport)
 
     <section class="admin-grid">
       <article class="admin-panel">
+        <SoteriaIcon name="offline-sync" :size="28" decorative />
         <h2>Offline sync health</h2>
         <p>Queued learner activity from low-connectivity crews waits here until the device reconnects.</p>
         <strong>{{ queuedItems }} queued events</strong>
       </article>
       <article class="admin-panel">
+        <SoteriaIcon name="audit" :size="28" decorative />
         <h2>Audit-ready exports</h2>
         <p>Completion, certificate, xAPI, and field sign-off exports are shaped for safety and compliance reviews.</p>
         <button class="button button-secondary" type="button">
@@ -237,10 +240,12 @@ onMounted(loadReport)
         </button>
       </article>
       <article class="admin-panel">
+        <SoteriaIcon name="crew-assignment" :size="28" decorative />
         <h2>Roster and crews</h2>
         <p>CSV roster upload, crew assignment, site assignment, and manager-scoped reporting belong in this surface.</p>
       </article>
       <article class="admin-panel">
+        <SoteriaIcon name="certificate" :size="28" decorative />
         <h2>Billing and seats</h2>
         <p>{{ billing.packageName }} · {{ billing.billingStatus }}</p>
         <strong>{{ billing.seatUsed }}/{{ billing.seatLimit }} seats</strong>
