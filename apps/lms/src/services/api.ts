@@ -10,10 +10,15 @@ import type {
   CourseBundleDTO,
   CourseDTO,
   CreateUserInput,
+  CatalogLandingDTO,
   EntitlementDTO,
   EnrollmentDTO,
   ImportUsersInput,
+  AnalyticsEventInput,
+  LeadCaptureInput,
+  LeadCaptureDTO,
   ProductPackageDTO,
+  PublicCourseDTO,
   ScormRuntimeDTO,
   ScormRuntimeState,
   SyncRequest,
@@ -23,7 +28,12 @@ import type {
   XapiStatement,
 } from '@soteria-forge/shared'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+const API_BASE_URL =
+  configuredApiBaseUrl ||
+  (globalThis.location?.hostname === 'localhost' || globalThis.location?.hostname === '127.0.0.1'
+    ? 'http://localhost:4000'
+    : 'https://soteria-forge-api.vercel.app')
 
 async function request<T>(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem('soteria-forge:token')
@@ -152,11 +162,18 @@ export const api = {
   catalogPackages() {
     return request<{ packages: ProductPackageDTO[] }>('/api/catalog/packages')
   },
+  catalogLanding() {
+    return request<CatalogLandingDTO>('/api/catalog/landing')
+  },
   catalogBundles() {
     return request<{ bundles: CourseBundleDTO[] }>('/api/catalog/bundles')
   },
-  catalogCourses() {
-    return request<{ courses: CourseDTO[] }>('/api/catalog/courses')
+  catalogCourses(params: Record<string, string> = {}) {
+    const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value)).toString()
+    return request<{ courses: PublicCourseDTO[] }>(`/api/catalog/courses${query ? `?${query}` : ''}`)
+  },
+  catalogCourse(slug: string) {
+    return request<{ course: PublicCourseDTO }>(`/api/catalog/courses/${slug}`)
   },
   checkoutSession(payload: CheckoutSessionInput) {
     return request<CheckoutSessionDTO>('/api/checkout/session', {
@@ -176,6 +193,18 @@ export const api = {
     return request<{ mode: 'stripe' | 'configuration-required'; portalUrl: string | null }>('/api/billing/portal-session', {
       method: 'POST',
       body: JSON.stringify({ returnUrl }),
+    })
+  },
+  captureLead(payload: LeadCaptureInput) {
+    return request<{ lead: LeadCaptureDTO }>('/api/leads', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  trackEvent(payload: AnalyticsEventInput) {
+    return request('/api/events', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     })
   },
 }

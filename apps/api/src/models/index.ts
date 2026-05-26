@@ -128,6 +128,13 @@ export const ProductPackageModel = mongoose.model(
       stripeProductId: String,
       stripePriceId: String,
       priceLabel: String,
+      headline: String,
+      bestFor: String,
+      featured: { type: Boolean, default: false },
+      ctaLabel: String,
+      trialLabel: String,
+      seatLabel: String,
+      displayPriceLabel: String,
       buyerType: { type: String, enum: ['individual', 'company', 'both'], default: 'both' },
       sortOrder: { type: Number, default: 100 },
     },
@@ -175,7 +182,19 @@ export const CourseModel = mongoose.model(
     {
       ...tenantScoped,
       title: { type: String, required: true },
+      slug: { type: String, index: true },
       description: { type: String, default: '' },
+      publicSummary: String,
+      audience: { type: [String], default: [] },
+      outcomes: { type: [String], default: [] },
+      category: { type: String, default: 'Industrial Safety' },
+      role: { type: String, default: 'Field Worker' },
+      topic: { type: String, default: 'Field Readiness' },
+      durationMinutes: Number,
+      certificateLabel: String,
+      thumbnailUrl: String,
+      heroImageUrl: String,
+      previewLessonId: String,
       status: { type: String, enum: ['draft', 'published', 'archived'] satisfies CourseStatus[], default: 'draft' },
       tags: { type: [String], default: [] },
       fieldReadinessScore: { type: Number, default: 80 },
@@ -360,6 +379,7 @@ export const MarketplaceOrderModel = mongoose.model(
       buyerType: { type: String, enum: ['individual', 'company'], required: true },
       companyName: String,
       seatCount: { type: Number, default: 1 },
+      courseSlug: String,
       status: {
         type: String,
         enum: ['pending', 'checkout-created', 'completed', 'canceled', 'failed'] satisfies MarketplaceOrderStatus[],
@@ -367,6 +387,40 @@ export const MarketplaceOrderModel = mongoose.model(
         index: true,
       },
       stripeCheckoutSessionId: { type: String, index: true },
+    },
+    timestamps,
+  ),
+)
+
+export const LeadModel = mongoose.model(
+  'Lead',
+  new Schema(
+    {
+      name: { type: String, required: true },
+      email: { type: String, required: true, lowercase: true, trim: true },
+      company: String,
+      teamSize: String,
+      interest: String,
+      message: String,
+      sourcePath: String,
+      status: { type: String, enum: ['new', 'reviewed', 'converted', 'archived'], default: 'new', index: true },
+    },
+    timestamps,
+  ),
+)
+
+export const AnalyticsEventModel = mongoose.model(
+  'AnalyticsEvent',
+  new Schema(
+    {
+      eventName: { type: String, required: true, index: true },
+      sourcePath: String,
+      courseSlug: String,
+      packageSlug: String,
+      metadata: Schema.Types.Mixed,
+      anonymousId: String,
+      ip: String,
+      userAgent: String,
     },
     timestamps,
   ),

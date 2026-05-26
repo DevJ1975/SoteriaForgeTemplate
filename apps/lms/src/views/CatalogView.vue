@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ArrowRight, Building2, Check, UserRound } from '@lucide/vue'
-import type { CourseDTO, ProductPackageDTO } from '@soteria-forge/shared'
+import type { ProductPackageDTO, PublicCourseDTO } from '@soteria-forge/shared'
 import templateLogo from '../assets/template-logo.svg'
 import SoteriaIcon from '../components/SoteriaIcon.vue'
 import { api } from '../services/api'
 
 const packages = ref<ProductPackageDTO[]>([])
-const courses = ref<CourseDTO[]>([])
+const courses = ref<PublicCourseDTO[]>([])
 const selectedPackageSlug = ref('starter')
 const buyerType = ref<'individual' | 'company'>('individual')
 const buyerName = ref('')

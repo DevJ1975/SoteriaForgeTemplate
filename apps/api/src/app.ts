@@ -19,7 +19,9 @@ import { completionsRouter } from './routes/completions.js'
 import { coursesRouter } from './routes/courses.js'
 import { enrollmentsRouter } from './routes/enrollments.js'
 import { entitlementsRouter } from './routes/entitlements.js'
+import { eventsRouter } from './routes/events.js'
 import { healthRouter } from './routes/health.js'
+import { leadsRouter } from './routes/leads.js'
 import { meRouter } from './routes/me.js'
 import { scormRouter } from './routes/scorm.js'
 import { stripeWebhookRouter } from './routes/stripeWebhook.js'
@@ -33,6 +35,7 @@ export const app = express()
 app.use(helmet())
 app.use(
   cors({
+    credentials: true,
     origin(origin, callback) {
       const isLocalDevOrigin =
         env.nodeEnv !== 'production' && origin !== undefined && /^http:\/\/localhost:\d+$/.test(origin)
@@ -53,8 +56,10 @@ app.use('/api/health', healthRouter)
 app.use('/api/stripe', ensureDatabase, express.raw({ type: 'application/json' }), stripeWebhookRouter)
 app.use(express.json())
 app.use(ensureDatabase)
-app.use('/api/catalog', catalogRouter)
-app.use('/api/checkout', checkoutRouter)
+app.use('/api/catalog', ensureDatabase, catalogRouter)
+app.use('/api/checkout', ensureDatabase, checkoutRouter)
+app.use('/api/events', ensureDatabase, eventsRouter)
+app.use('/api/leads', ensureDatabase, leadsRouter)
 app.use(resolveTenant)
 app.use(attachUser)
 app.use(auditResponse)

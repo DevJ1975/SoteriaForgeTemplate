@@ -6,6 +6,7 @@ import { api } from '../services/api'
 import { flushSyncQueue } from '../offline/sync'
 import { getQueuedItems } from '../offline/db'
 import SoteriaIcon from '../components/SoteriaIcon.vue'
+import { noindexAppShell } from '../utils/seo'
 
 const report = ref<Record<string, number>>({
   users: 0,
@@ -183,7 +184,10 @@ async function openBillingPortal() {
   status.value = 'Stripe portal is ready once billing credentials are configured.'
 }
 
-onMounted(loadReport)
+onMounted(() => {
+  noindexAppShell('Soteria FORGE Admin')
+  void loadReport()
+})
 </script>
 
 <template>
@@ -250,6 +254,12 @@ onMounted(loadReport)
         <p>{{ billing.packageName }} · {{ billing.billingStatus }}</p>
         <strong>{{ billing.seatUsed }}/{{ billing.seatLimit }} seats</strong>
         <button class="button button-secondary" type="button" @click="openBillingPortal">Manage Billing</button>
+      </article>
+      <article class="admin-panel">
+        <SoteriaIcon name="locked" :size="28" decorative />
+        <h2>Apple Pay readiness</h2>
+        <p>Stripe Checkout can show Apple Pay after payment method domains, HTTPS, live keys, and wallet settings are configured.</p>
+        <strong>Stripe-hosted wallet flow</strong>
       </article>
     </section>
 

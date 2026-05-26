@@ -29,6 +29,7 @@ import { createLessonStatement, createVideoStatement } from '../learning/xapi'
 import { cacheCourses, getCachedCourses } from '../offline/db'
 import { enqueueSyncItem, flushSyncQueue } from '../offline/sync'
 import { useSessionStore } from '../stores/session'
+import { noindexAppShell } from '../utils/seo'
 import type { CertificateDTO, CourseDTO, CourseLessonDTO, EnrollmentDTO, QuizQuestionDTO } from '@soteria-forge/shared'
 
 type Section = 'dashboard' | 'learn' | 'games' | 'leaderboard' | 'goals' | 'admin'
@@ -458,6 +459,7 @@ function updateStandaloneStatus() {
 }
 
 onMounted(() => {
+  noindexAppShell('Soteria FORGE Login')
   updateStandaloneStatus()
   void session.restore().then(() => {
     if (session.user?.name) {

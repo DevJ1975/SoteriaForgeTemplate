@@ -7,6 +7,7 @@ import type {
   EnrollmentDTO,
   MarketplaceOrderDTO,
   ProductPackageDTO,
+  PublicCourseDTO,
   ScormRuntimeDTO,
   SubscriptionDTO,
   TenantDTO,
@@ -63,8 +64,60 @@ export function serializeProductPackage(productPackage: any): ProductPackageDTO 
     stripeProductId: productPackage.stripeProductId,
     stripePriceId: productPackage.stripePriceId,
     priceLabel: productPackage.priceLabel,
+    headline: productPackage.headline,
+    bestFor: productPackage.bestFor,
+    featured: Boolean(productPackage.featured),
+    ctaLabel: productPackage.ctaLabel,
+    trialLabel: productPackage.trialLabel,
+    seatLabel: productPackage.seatLabel,
+    displayPriceLabel: productPackage.displayPriceLabel,
     buyerType: productPackage.buyerType ?? 'both',
     sortOrder: productPackage.sortOrder ?? 100,
+  }
+}
+
+export function courseSlug(course: any) {
+  return (
+    course.slug ??
+    String(course.title ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+  )
+}
+
+export function serializePublicCourse(course: any, includedPackageIds: string[] = []): PublicCourseDTO {
+  const lessons = (course.modules ?? []).flatMap((module: any) => module.lessons ?? [])
+  const previewLesson = lessons.find((lesson: any) => String(lesson.id) === course.previewLessonId) ?? lessons[0]
+  const durationMinutes =
+    course.durationMinutes ?? lessons.reduce((total: number, lesson: any) => total + Number(lesson.durationMinutes ?? 0), 0)
+
+  return {
+    id: course.id,
+    slug: courseSlug(course),
+    title: course.title,
+    description: course.description,
+    publicSummary: course.publicSummary ?? course.description,
+    audience: course.audience ?? [],
+    outcomes: course.outcomes ?? [],
+    category: course.category ?? 'Industrial Safety',
+    role: course.role ?? 'Field Worker',
+    topic: course.topic ?? 'Field Readiness',
+    durationMinutes,
+    certificateLabel: course.certificateLabel ?? (course.certificateExpiresInDays ? 'Certificate included' : 'Completion record'),
+    fieldReadinessScore: course.fieldReadinessScore ?? 0,
+    thumbnailUrl: course.thumbnailUrl,
+    heroImageUrl: course.heroImageUrl,
+    previewLesson: previewLesson
+      ? {
+          title: previewLesson.title,
+          description: previewLesson.description,
+          durationMinutes: previewLesson.durationMinutes,
+          kind: previewLesson.kind,
+        }
+      : undefined,
+    includedPackageIds,
+    tags: course.tags ?? [],
   }
 }
 
@@ -188,6 +241,7 @@ export function serializeMarketplaceOrder(order: any): MarketplaceOrderDTO {
     buyerType: order.buyerType,
     companyName: order.companyName,
     seatCount: order.seatCount ?? 1,
+    courseSlug: order.courseSlug,
     status: order.status,
     stripeCheckoutSessionId: order.stripeCheckoutSessionId,
   }

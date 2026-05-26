@@ -78,7 +78,21 @@ export async function seedDemoData() {
       $setOnInsert: {
         tenantId: tenant._id,
         title: 'Field Readiness Orientation',
+        slug: 'field-readiness-orientation',
         description: 'A mobile-first introduction to safe, prepared work in spotty-connectivity field environments.',
+        publicSummary:
+          'A short, mobile-first starter course for crews who need practical safety habits, offline support, and completion records in the field.',
+        audience: ['New field employees', 'Small company crews', 'Supervisors onboarding workers'],
+        outcomes: [
+          'Prepare for training and task briefings in low-connectivity environments',
+          'Recognize when to queue progress and sync later',
+          'Explain supervisor sign-off expectations before field work',
+        ],
+        category: 'Industrial Safety',
+        role: 'Field Worker',
+        topic: 'Field Readiness',
+        durationMinutes: 15,
+        certificateLabel: 'Field Readiness certificate',
         status: 'published',
         tags: ['field-ready', 'microlearning', 'safety'],
         fieldReadinessScore: 88,

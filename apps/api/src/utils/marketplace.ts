@@ -31,9 +31,16 @@ export function defaultPackageSeeds() {
       name: 'Starter',
       slug: 'starter',
       description: 'Affordable monthly access for solo learners and very small teams getting started with field-ready training.',
+      headline: 'Start field safety training this month.',
+      bestFor: 'Solo learners, owner-operators, and very small teams',
       seatLimit: 3,
       stripePriceId: env.stripePriceStarter,
       priceLabel: env.stripePriceStarter ? 'Monthly subscription' : 'Configure Stripe price',
+      displayPriceLabel: 'Monthly access',
+      trialLabel: 'Preview course available',
+      seatLabel: 'Up to 3 learners',
+      ctaLabel: 'Start Starter',
+      featured: false,
       buyerType: 'both',
       sortOrder: 10,
       featureFlags: {
@@ -47,9 +54,16 @@ export function defaultPackageSeeds() {
       name: 'Field Team',
       slug: 'field-team',
       description: 'Monthly access for crews that need mobile assignments, offline support, and supervisor visibility.',
+      headline: 'Train crews without locking into annual contracts.',
+      bestFor: 'Construction, logistics, utilities, and field service crews',
       seatLimit: 15,
       stripePriceId: env.stripePriceFieldTeam,
       priceLabel: env.stripePriceFieldTeam ? 'Monthly subscription' : 'Configure Stripe price',
+      displayPriceLabel: 'Monthly team access',
+      trialLabel: 'Coupon-ready checkout',
+      seatLabel: 'Up to 15 learners',
+      ctaLabel: 'Start Field Team',
+      featured: true,
       buyerType: 'company',
       sortOrder: 20,
       featureFlags: {
@@ -63,9 +77,16 @@ export function defaultPackageSeeds() {
       name: 'Compliance',
       slug: 'compliance',
       description: 'Full monthly compliance package with reports, certificates, offline field mode, and audit-ready records.',
+      headline: 'Compliance records, certificates, and offline-ready training.',
+      bestFor: 'Small companies that need proof of training and manager reports',
       seatLimit: 50,
       stripePriceId: env.stripePriceCompliance,
       priceLabel: env.stripePriceCompliance ? 'Monthly subscription' : 'Configure Stripe price',
+      displayPriceLabel: 'Monthly compliance access',
+      trialLabel: 'Includes certificate wallet',
+      seatLabel: 'Up to 50 learners',
+      ctaLabel: 'Start Compliance',
+      featured: false,
       buyerType: 'company',
       sortOrder: 30,
       featureFlags: {
@@ -80,9 +101,16 @@ export function defaultPackageSeeds() {
       name: 'Dedicated Implementation',
       slug: 'dedicated-implementation',
       description: 'Implementation-ready package for branded subdomains, custom rollout support, and tenant-specific course operations.',
+      headline: 'Move from marketplace workspace to dedicated rollout.',
+      bestFor: 'Organizations needing subdomains, branding, and implementation support',
       seatLimit: 250,
       stripePriceId: env.stripePriceDedicated,
       priceLabel: env.stripePriceDedicated ? 'Monthly subscription' : 'Contact to configure',
+      displayPriceLabel: 'Implementation package',
+      trialLabel: 'Talk to Soteria FORGE',
+      seatLabel: 'Custom rollout seats',
+      ctaLabel: 'Request Dedicated',
+      featured: false,
       buyerType: 'company',
       sortOrder: 40,
       featureFlags: {
@@ -99,6 +127,30 @@ export function defaultPackageSeeds() {
 
 export async function ensureMarketplaceCatalog() {
   const demoTenant = await Tenant.findOne({ slug: 'demo' })
+  if (demoTenant) {
+    await Course.updateMany(
+      { tenantId: demoTenant._id, title: 'Field Readiness Orientation' },
+      {
+        $set: {
+          slug: 'field-readiness-orientation',
+          publicSummary:
+            'A short, mobile-first starter course for crews who need practical safety habits, offline support, and completion records in the field.',
+          audience: 'New field employees, contractors, crew leads, and owner-operators',
+          outcomes: [
+            'Explain how Soteria FORGE supports field-ready training.',
+            'Identify the offline workflow for low-connectivity job sites.',
+            'Complete a short knowledge check and generate a certificate-ready record.',
+          ],
+          category: 'Industrial Safety',
+          role: 'Field worker',
+          topic: 'Field readiness',
+          durationMinutes: 15,
+          certificateLabel: 'Field Readiness certificate',
+          fieldReadinessScore: 88,
+        },
+      },
+    )
+  }
   const demoCourses = demoTenant ? await Course.find({ tenantId: demoTenant._id, status: 'published' }).sort({ updatedAt: -1 }) : []
 
   const bundle = await CourseBundleModel.findOneAndUpdate(
@@ -137,6 +189,13 @@ export async function ensureMarketplaceCatalog() {
           featureFlags: seed.featureFlags,
           stripePriceId: seed.stripePriceId,
           priceLabel: seed.priceLabel,
+          headline: seed.headline,
+          bestFor: seed.bestFor,
+          featured: seed.featured,
+          ctaLabel: seed.ctaLabel,
+          trialLabel: seed.trialLabel,
+          seatLabel: seed.seatLabel,
+          displayPriceLabel: seed.displayPriceLabel,
         },
       },
       { upsert: true, returnDocument: 'after' },
@@ -160,7 +219,19 @@ export async function cloneBundleCoursesToTenant(packageId: unknown, tenantId: u
         $setOnInsert: {
           tenantId,
           title: course.title,
+          slug: course.slug,
           description: course.description,
+          publicSummary: course.publicSummary,
+          audience: course.audience,
+          outcomes: course.outcomes,
+          category: course.category,
+          role: course.role,
+          topic: course.topic,
+          durationMinutes: course.durationMinutes,
+          certificateLabel: course.certificateLabel,
+          thumbnailUrl: course.thumbnailUrl,
+          heroImageUrl: course.heroImageUrl,
+          previewLessonId: course.previewLessonId,
           status: 'published',
           tags: course.tags,
           fieldReadinessScore: course.fieldReadinessScore,

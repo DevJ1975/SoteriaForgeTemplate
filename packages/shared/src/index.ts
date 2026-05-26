@@ -166,8 +166,41 @@ export type ProductPackageDTO = {
   stripeProductId?: string
   stripePriceId?: string
   priceLabel?: string
+  headline?: string
+  bestFor?: string
+  featured?: boolean
+  ctaLabel?: string
+  trialLabel?: string
+  seatLabel?: string
+  displayPriceLabel?: string
   buyerType: 'individual' | 'company' | 'both'
   sortOrder: number
+}
+
+export type PublicCourseDTO = {
+  id: string
+  slug: string
+  title: string
+  description: string
+  publicSummary: string
+  audience: string[]
+  outcomes: string[]
+  category: string
+  role: string
+  topic: string
+  durationMinutes: number
+  certificateLabel: string
+  fieldReadinessScore: number
+  thumbnailUrl?: string
+  heroImageUrl?: string
+  previewLesson?: {
+    title: string
+    description: string
+    durationMinutes: number
+    kind: LessonKind
+  }
+  includedPackageIds: string[]
+  tags: string[]
 }
 
 export type CourseBundleDTO = {
@@ -212,6 +245,7 @@ export type MarketplaceOrderDTO = {
   buyerType: 'individual' | 'company'
   companyName?: string
   seatCount: number
+  courseSlug?: string
   status: MarketplaceOrderStatus
   stripeCheckoutSessionId?: string
 }
@@ -219,7 +253,19 @@ export type MarketplaceOrderDTO = {
 export type CatalogDTO = {
   packages: ProductPackageDTO[]
   bundles: CourseBundleDTO[]
-  courses: CourseDTO[]
+  courses: PublicCourseDTO[]
+}
+
+export type CatalogLandingDTO = {
+  packages: ProductPackageDTO[]
+  courses: PublicCourseDTO[]
+  stats: {
+    packages: number
+    courses: number
+    categories: number
+    certificateCourses: number
+  }
+  categories: string[]
 }
 
 export type CheckoutSessionInput = {
@@ -231,12 +277,42 @@ export type CheckoutSessionInput = {
   seatCount?: number
   successUrl?: string
   cancelUrl?: string
+  courseSlug?: string
 }
 
 export type CheckoutSessionDTO = {
   checkoutUrl: string
   mode: 'stripe' | 'configuration-required'
   order: MarketplaceOrderDTO
+}
+
+export type LeadCaptureInput = {
+  name: string
+  email: string
+  company?: string
+  teamSize?: string
+  interest?: string
+  message?: string
+  sourcePath?: string
+}
+
+export type LeadCaptureDTO = LeadCaptureInput & {
+  id: string
+  status: 'new' | 'reviewed' | 'converted' | 'archived'
+  createdAt: string
+}
+
+export type AnalyticsEventInput = {
+  eventName: string
+  sourcePath?: string
+  courseSlug?: string
+  packageSlug?: string
+  metadata?: Record<string, unknown>
+}
+
+export type AnalyticsEventDTO = AnalyticsEventInput & {
+  id: string
+  createdAt: string
 }
 
 export type CreateUserInput = {

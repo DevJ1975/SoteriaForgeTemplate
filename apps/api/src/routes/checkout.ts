@@ -50,6 +50,7 @@ checkoutRouter.post(
       buyerType,
       companyName: req.body.companyName,
       seatCount,
+      courseSlug: req.body.courseSlug,
       status: 'pending',
     })
 
@@ -76,6 +77,7 @@ checkoutRouter.post(
           tenantId: tenant.id,
           buyerUserId: user.id,
           packageId: productPackage.id,
+          courseSlug: req.body.courseSlug,
         },
       },
       metadata: {
@@ -83,6 +85,7 @@ checkoutRouter.post(
         tenantId: tenant.id,
         buyerUserId: user.id,
         packageId: productPackage.id,
+        courseSlug: req.body.courseSlug,
       },
     })
 
