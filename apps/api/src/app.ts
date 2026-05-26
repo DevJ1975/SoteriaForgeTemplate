@@ -6,6 +6,7 @@ import morgan from 'morgan'
 import { env } from './config/env.js'
 import { auditResponse } from './middleware/audit.js'
 import { attachUser } from './middleware/auth.js'
+import { ensureDatabase } from './middleware/database.js'
 import { errorHandler } from './middleware/errors.js'
 import { resolveTenant } from './middleware/tenant.js'
 import { adminRouter } from './routes/admin.js'
@@ -45,6 +46,7 @@ app.use(cookieParser())
 app.use(morgan('dev'))
 
 app.use('/api/health', healthRouter)
+app.use(ensureDatabase)
 app.use(resolveTenant)
 app.use(attachUser)
 app.use(auditResponse)

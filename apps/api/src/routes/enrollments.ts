@@ -27,7 +27,7 @@ enrollmentsRouter.post(
           dueAt: req.body.dueAt ? new Date(req.body.dueAt) : undefined,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
 
     req.audit = { action: 'enrollment.assign', resourceType: 'Enrollment', resourceId: enrollment.id }

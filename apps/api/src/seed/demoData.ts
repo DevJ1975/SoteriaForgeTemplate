@@ -27,7 +27,7 @@ export async function seedDemoData() {
         },
       },
     },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: 'after' },
   )
 
   const passwordHash = await bcrypt.hash(demoPassword, 12)
@@ -64,7 +64,7 @@ export async function seedDemoData() {
     const createdUser = await UserModel.findOneAndUpdate(
       { tenantId: tenant._id, email: user.email },
       { $setOnInsert: { ...user, tenantId: tenant._id, passwordHash } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
     createdUsers.push(createdUser)
   }
@@ -125,14 +125,14 @@ export async function seedDemoData() {
         ],
       },
     },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: 'after' },
   )
 
   for (const user of createdUsers.filter((candidate) => candidate.roles.includes('learner'))) {
     await EnrollmentModel.findOneAndUpdate(
       { tenantId: tenant._id, userId: user._id, courseId: course._id },
       { $setOnInsert: { tenantId: tenant._id, userId: user._id, courseId: course._id, status: 'assigned', progress: 0 } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
   }
 }

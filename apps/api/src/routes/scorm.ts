@@ -51,7 +51,7 @@ scormRouter.post(
           interactions: req.body.interactions ?? [],
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     )
 
     res.json({ runtime })
