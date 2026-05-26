@@ -1884,6 +1884,75 @@ input:focus {
   margin-inline: auto;
 }
 
+.admin-workflow-grid,
+.admin-data-grid {
+  display: grid;
+  max-width: 1220px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px auto 0;
+}
+
+.admin-form,
+.check-list,
+.compact-table {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-form input,
+.admin-panel select,
+.admin-panel textarea {
+  width: 100%;
+  border: 1px solid #ccd5e1;
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #172033;
+  background: #ffffff;
+}
+
+.admin-panel textarea {
+  resize: vertical;
+}
+
+.check-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.check-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.check-list input {
+  width: auto;
+  min-height: auto;
+}
+
+.compact-table div {
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px solid #e1e7f0;
+  padding: 10px 0;
+}
+
+.compact-table div:last-child {
+  border-bottom: 0;
+}
+
+.compact-table span,
+.compact-table small {
+  color: #58667c;
+}
+
 .admin-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1919,7 +1988,9 @@ input:focus {
 
 @media (max-width: 900px) {
   .admin-header,
-  .admin-grid {
+  .admin-grid,
+  .admin-workflow-grid,
+  .admin-data-grid {
     display: grid;
     grid-template-columns: 1fr;
   }

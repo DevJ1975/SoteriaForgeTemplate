@@ -97,6 +97,13 @@ textarea {
   text-transform: uppercase;
 }
 
+.console-header span {
+  display: block;
+  margin-top: 8px;
+  color: #58667c;
+  font-weight: 800;
+}
+
 .console-header h1 {
   max-width: 780px;
   margin: 0;
@@ -105,9 +112,30 @@ textarea {
   line-height: 1.04;
 }
 
-.primary-action {
+.primary-action,
+.secondary-action {
   color: #ffffff;
   background: #1f3f86;
+}
+
+.secondary-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(201 168 78 / 42%);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #101a2e;
+  background: #f6eed4;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.primary-action:disabled,
+.secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .console-grid {
@@ -144,7 +172,8 @@ label {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid #ccd5e1;
   border-radius: 8px;
@@ -191,6 +220,11 @@ textarea {
 .module-list {
   display: grid;
   gap: 10px;
+}
+
+.console-login,
+.tenant-list {
+  margin-bottom: 16px;
 }
 
 .module-list div {

@@ -24,15 +24,28 @@ import type { LeaderboardEntry, Lesson, TrainingPath } from '../data/training'
 import type { SprintGameResult } from '../game/firstImpressionSprint/types'
 import { api } from '../services/api'
 import { createLessonStatement } from '../learning/xapi'
-import { cacheCourses } from '../offline/db'
+import { cacheCourses, getCachedCourses } from '../offline/db'
 import { enqueueSyncItem, flushSyncQueue } from '../offline/sync'
 import { useSessionStore } from '../stores/session'
+import type { CourseDTO, CourseLessonDTO, EnrollmentDTO, QuizQuestionDTO } from '@soteria-forge/shared'
 
 type Section = 'dashboard' | 'learn' | 'games' | 'leaderboard' | 'goals' | 'admin'
 
 type RankedLeaderboardEntry = LeaderboardEntry & {
   rank: number
   isCurrentUser?: boolean
+}
+
+type LmsLesson = Lesson & {
+  courseId?: string
+  quizQuestions?: QuizQuestionDTO[]
+  transcript?: string
+  offlineSummary?: string
+}
+
+type LmsTrainingPath = Omit<TrainingPath, 'lessons'> & {
+  courseId?: string
+  lessons: LmsLesson[]
 }
 
 type BeforeInstallPromptEvent = Event & {
@@ -53,6 +66,9 @@ const activeSection = ref<Section>('dashboard')
 const selectedPathId = ref(trainingPaths[0].id)
 const selectedLessonId = ref(trainingPaths[0].lessons[1].id)
 const completedLessons = ref<string[]>(['professional-first-impressions'])
+const apiCourses = ref<CourseDTO[]>([])
+const apiEnrollments = ref<EnrollmentDTO[]>([])
+const courseSource = ref<'seed' | 'api' | 'cache'>('seed')
 const quizAnswers = ref<Record<string, string>>({})
 const firstImpressionResult = ref<SprintGameResult | null>(null)
 const activeVideoLessons = ref<Record<string, boolean>>({})
@@ -75,19 +91,28 @@ const navItems = [
   { id: 'admin', label: 'Reports', icon: ChartNoAxesColumn },
 ] as const
 
-const selectedPath = computed<TrainingPath>(() => {
-  return trainingPaths.find((path) => path.id === selectedPathId.value) ?? trainingPaths[0]
+const activeTrainingPaths = computed<LmsTrainingPath[]>(() => {
+  if (!apiCourses.value.length) return trainingPaths
+  return apiCourses.value.map(courseToTrainingPath)
 })
 
-const selectedLesson = computed<Lesson>(() => {
+const selectedPath = computed<LmsTrainingPath>(() => {
+  return activeTrainingPaths.value.find((path) => path.id === selectedPathId.value) ?? activeTrainingPaths.value[0] ?? trainingPaths[0]
+})
+
+const selectedLesson = computed<LmsLesson>(() => {
   return (
     selectedPath.value.lessons.find((lesson) => lesson.id === selectedLessonId.value) ??
     selectedPath.value.lessons[0]
   )
 })
 
+const selectedQuizQuestions = computed(() => {
+  return selectedLesson.value.quizQuestions?.length ? selectedLesson.value.quizQuestions : quizQuestions
+})
+
 const quizScore = computed(() => {
-  return quizQuestions.filter((question) => quizAnswers.value[question.id] === question.answer).length
+  return selectedQuizQuestions.value.filter((question) => quizAnswers.value[question.id] === question.answer).length
 })
 
 const gameScore = computed(() => {
@@ -95,7 +120,7 @@ const gameScore = computed(() => {
 })
 
 const totalLessonCount = computed(() => {
-  return trainingPaths.reduce((sum, path) => sum + path.lessons.length, 0)
+  return activeTrainingPaths.value.reduce((sum, path) => sum + path.lessons.length, 0)
 })
 
 const totalProgress = computed(() => {
@@ -103,8 +128,43 @@ const totalProgress = computed(() => {
 })
 
 const nextUp = computed(() => {
-  return trainingPaths.flatMap((path) => path.lessons).find((lesson) => lesson.status === 'current')
+  return activeTrainingPaths.value.flatMap((path) => path.lessons).find((lesson) => lesson.status === 'current')
 })
+
+function courseToTrainingPath(course: CourseDTO): LmsTrainingPath {
+  const enrollment = apiEnrollments.value.find((candidate) => candidate.courseId === course.id)
+  const flatLessons = course.modules.flatMap((module) => module.lessons.map((lesson) => courseLessonToLesson(course, lesson)))
+  const progress = enrollment?.progress ?? 0
+
+  return {
+    id: course.id,
+    courseId: course.id,
+    title: course.title,
+    category: course.tags[0] ?? 'Field Ready',
+    outcome: course.description,
+    dueDate: enrollment?.dueAt ? new Date(enrollment.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Assigned',
+    progress,
+    lessons: flatLessons.map((lesson, index) => ({
+      ...lesson,
+      status: progress >= 100 || completedLessons.value.includes(lesson.id) ? 'complete' : index === 0 ? 'current' : lesson.status,
+    })),
+  }
+}
+
+function courseLessonToLesson(course: CourseDTO, lesson: CourseLessonDTO): LmsLesson {
+  return {
+    id: lesson.id,
+    courseId: course.id,
+    title: lesson.title,
+    type: lesson.kind === 'game' || lesson.kind === 'quiz' || lesson.kind === 'video' ? lesson.kind : 'quiz',
+    duration: `${lesson.durationMinutes} min`,
+    description: lesson.description,
+    status: 'current',
+    quizQuestions: lesson.quizQuestions,
+    transcript: lesson.transcript,
+    offlineSummary: lesson.offlineSummary,
+  }
+}
 
 const leaderboardRows = computed<RankedLeaderboardEntry[]>(() => {
   const currentPlayerEntry: LeaderboardEntry | null = firstImpressionResult.value
@@ -155,12 +215,13 @@ async function logout() {
 function choosePath(pathId: string) {
   selectedPathId.value = pathId
   selectedLessonId.value =
-    trainingPaths.find((path) => path.id === pathId)?.lessons.find((lesson) => lesson.status !== 'locked')?.id ??
+    activeTrainingPaths.value.find((path) => path.id === pathId)?.lessons.find((lesson) => lesson.status !== 'locked')?.id ??
+    activeTrainingPaths.value[0]?.lessons[0]?.id ??
     trainingPaths[0].lessons[0].id
   activeSection.value = 'learn'
 }
 
-function chooseLesson(lesson: Lesson) {
+function chooseLesson(lesson: LmsLesson) {
   if (lesson.status === 'locked') return
   selectedLessonId.value = lesson.id
 }
@@ -209,10 +270,11 @@ function playLessonVideo(lessonId: string) {
   }
 }
 
-async function recordLessonCompletion(lesson: Lesson) {
+async function recordLessonCompletion(lesson: LmsLesson) {
   const tenantId = session.tenant?.id ?? 'offline-demo'
   const user = session.user
   const idempotencyKey = `completion-${tenantId}-${employeeName.value}-${lesson.id}`
+  const courseId = lesson.courseId ?? selectedPath.value.courseId ?? selectedPathId.value
 
   if (!user) return
 
@@ -225,13 +287,29 @@ async function recordLessonCompletion(lesson: Lesson) {
     description: lesson.description,
     completion: true,
     success: true,
-    score: lesson.type === 'quiz' ? Math.round((quizScore.value / quizQuestions.length) * 100) : undefined,
+    score: lesson.type === 'quiz' ? Math.round((quizScore.value / selectedQuizQuestions.value.length) * 100) : undefined,
   })
 
   try {
+    await api.completeLesson({
+      courseId,
+      lessonId: lesson.id,
+      source: navigator.onLine ? 'online' : 'offline-capable',
+      idempotencyKey,
+    })
     await api.submitXapiStatement(statement)
     syncMessage.value = 'Completion synced.'
   } catch {
+    await enqueueSyncItem({
+      tenantId,
+      userId: user.id,
+      type: 'completion',
+      payload: {
+        courseId,
+        lessonId: lesson.id,
+      },
+      idempotencyKey,
+    })
     await enqueueSyncItem({
       tenantId,
       userId: user.id,
@@ -246,9 +324,27 @@ async function recordLessonCompletion(lesson: Lesson) {
 async function warmOfflineCache() {
   try {
     const response = await api.courses()
+    apiCourses.value = response.courses
+    apiEnrollments.value = response.enrollments
     await cacheCourses(response.courses)
+    courseSource.value = 'api'
+    if (response.courses[0] && !response.courses.some((course) => course.id === selectedPathId.value)) {
+      selectedPathId.value = response.courses[0].id
+      selectedLessonId.value = response.courses[0].modules[0]?.lessons[0]?.id ?? selectedLessonId.value
+    }
     syncMessage.value = 'Assigned courses cached for offline field use.'
   } catch {
+    const cachedCourses = await getCachedCourses()
+    if (cachedCourses.length) {
+      apiCourses.value = cachedCourses
+      courseSource.value = 'cache'
+      selectedPathId.value = cachedCourses[0].id
+      selectedLessonId.value = cachedCourses[0].modules[0]?.lessons[0]?.id ?? selectedLessonId.value
+      syncMessage.value = 'Using cached assigned courses until signal returns.'
+      return
+    }
+
+    courseSource.value = 'seed'
     syncMessage.value = 'Offline demo mode is active. Local lessons remain available.'
   }
 }
@@ -395,7 +491,10 @@ onBeforeUnmount(() => {
           <div>
             <p class="eyebrow">Learner experience</p>
             <h1>{{ employeeName }}</h1>
-            <p>{{ employeeRole }} · Professional Development cohort</p>
+            <p>
+              {{ employeeRole }} ·
+              {{ courseSource === 'api' ? 'Live Atlas courses' : courseSource === 'cache' ? 'Cached field courses' : 'Professional Development cohort' }}
+            </p>
           </div>
         </div>
         <div class="profile-chip" aria-label="Current completion">
@@ -434,7 +533,7 @@ onBeforeUnmount(() => {
         <div class="metric-grid">
           <article class="metric-card">
             <span>Assigned paths</span>
-            <strong>{{ trainingPaths.length }}</strong>
+            <strong>{{ activeTrainingPaths.length }}</strong>
           </article>
           <article class="metric-card">
             <span>Completed lessons</span>
@@ -442,7 +541,7 @@ onBeforeUnmount(() => {
           </article>
           <article class="metric-card">
             <span>Quiz score</span>
-            <strong>{{ quizScore }}/{{ quizQuestions.length }}</strong>
+            <strong>{{ quizScore }}/{{ selectedQuizQuestions.length }}</strong>
           </article>
           <article class="metric-card">
             <span>Game score</span>
@@ -455,7 +554,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="path-grid">
-          <article v-for="path in trainingPaths" :key="path.id" class="path-card">
+          <article v-for="path in activeTrainingPaths" :key="path.id" class="path-card">
             <div>
               <span>{{ path.category }}</span>
               <h3>{{ path.title }}</h3>
@@ -477,7 +576,7 @@ onBeforeUnmount(() => {
       <section v-else-if="activeSection === 'learn'" class="learn-layout">
         <aside class="path-list" aria-label="Training paths">
           <button
-            v-for="path in trainingPaths"
+            v-for="path in activeTrainingPaths"
             :key="path.id"
             class="path-selector"
             :class="{ active: selectedPathId === path.id }"
@@ -528,8 +627,10 @@ onBeforeUnmount(() => {
                 <span>{{ selectedLesson.title }}</span>
               </div>
               <div class="lesson-notes">
-                <h3>Key takeaways</h3>
-                <ul>
+                <h3>{{ selectedLesson.transcript || selectedLesson.offlineSummary ? 'Offline support' : 'Key takeaways' }}</h3>
+                <p v-if="selectedLesson.offlineSummary">{{ selectedLesson.offlineSummary }}</p>
+                <p v-if="selectedLesson.transcript">{{ selectedLesson.transcript }}</p>
+                <ul v-if="!selectedLesson.transcript && !selectedLesson.offlineSummary">
                   <li>Preparedness is visible before you say a word.</li>
                   <li>Professional presence combines tone, posture, timing, and follow-through.</li>
                   <li>Confidence grows when your actions match your commitments.</li>
@@ -538,7 +639,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div v-else-if="selectedLesson.type === 'quiz'" class="quiz-stack">
-              <article v-for="question in quizQuestions" :key="question.id" class="question-block">
+              <article v-for="question in selectedQuizQuestions" :key="question.id" class="question-block">
                 <h3>{{ question.prompt }}</h3>
                 <label v-for="option in question.options" :key="option" class="choice-row">
                   <input v-model="quizAnswers[question.id]" type="radio" :name="question.id" :value="option" />

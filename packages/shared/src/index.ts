@@ -101,6 +101,64 @@ export type EnrollmentDTO = {
   progress: number
 }
 
+export type CompletionDTO = {
+  id: string
+  tenantId: string
+  userId: string
+  courseId: string
+  lessonId?: string
+  completedAt: string
+  source: string
+}
+
+export type CertificateDTO = {
+  id: string
+  tenantId: string
+  userId: string
+  courseId: string
+  certificateNumber: string
+  issuedAt: string
+  expiresAt?: string
+  revokedAt?: string
+}
+
+export type AdminReportDTO = {
+  summary: {
+    users: number
+    courses: number
+    enrollments: number
+    completed: number
+    overdue: number
+    completionRate: number
+    xapiStatements: number
+    completions: number
+    certificates: number
+  }
+  enrollments: EnrollmentDTO[]
+  completions: CompletionDTO[]
+}
+
+export type CreateUserInput = {
+  email: string
+  name: string
+  password?: string
+  roles?: UserRole[]
+  jobTitle?: string
+  department?: string
+  crew?: string
+  site?: string
+}
+
+export type ImportUsersInput = {
+  users: CreateUserInput[]
+}
+
+export type AssignCourseInput = {
+  userIds: string[]
+  courseId: string
+  dueAt?: string
+}
+
 export type XapiStatement = {
   id: string
   tenantId: string
@@ -211,6 +269,28 @@ export function resolveTenantSlugFromHost(hostHeader: string | undefined, rootDo
 export function hasRequiredRole(userRoles: UserRole[], requiredRoles: UserRole[]) {
   if (userRoles.includes('superadmin')) return true
   return requiredRoles.some((role) => userRoles.includes(role))
+}
+
+export function isUserRole(value: string): value is UserRole {
+  return ['learner', 'manager', 'admin', 'superadmin'].includes(value)
+}
+
+export function normalizeRoles(values: unknown, fallback: UserRole[] = ['learner']) {
+  if (!Array.isArray(values)) return fallback
+  const roles = values.map(String).filter(isUserRole)
+  return roles.length ? Array.from(new Set(roles)) : fallback
+}
+
+export function requireStringField(payload: Record<string, unknown>, field: string) {
+  const value = String(payload[field] ?? '').trim()
+  if (!value) {
+    throw new Error(`${field} is required`)
+  }
+  return value
+}
+
+export function isEmailLike(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
 export function createXapiStatement(input: Omit<XapiStatement, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) {

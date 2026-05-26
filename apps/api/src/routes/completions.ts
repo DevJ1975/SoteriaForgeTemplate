@@ -1,8 +1,10 @@
 import { Router } from 'express'
 import { requireAuth } from '../middleware/auth.js'
 import { asyncHandler } from '../middleware/errors.js'
-import { CompletionModel, EnrollmentModel } from '../models/index.js'
+import { CertificateModel, CompletionModel, CourseModel, EnrollmentModel } from '../models/index.js'
 import { createOrFindByIdempotency } from '../utils/idempotency.js'
+import { serializeCertificate, serializeCompletion } from '../utils/serialize.js'
+import { tenantQuery } from '../utils/tenantScope.js'
 
 export const completionsRouter = Router()
 
@@ -29,11 +31,39 @@ completionsRouter.post(
       },
     )
 
-    await EnrollmentModel.findOneAndUpdate(
-      { tenantId: req.tenant?.mongoId, userId: req.user?.mongoId, courseId: req.body.courseId },
+    const enrollment = await EnrollmentModel.findOneAndUpdate(
+      tenantQuery(req, { userId: req.user?.mongoId, courseId: req.body.courseId }),
       { $set: { status: 'completed', progress: 100, completedAt: new Date() } },
+      { returnDocument: 'after' },
     )
 
-    res.status(201).json({ completion })
+    let certificate = null
+    if (enrollment) {
+      const course = await CourseModel.findOne(tenantQuery(req, { _id: req.body.courseId }))
+      const issuedAt = new Date()
+      const expiresAt = course?.certificateExpiresInDays
+        ? new Date(issuedAt.getTime() + course.certificateExpiresInDays * 24 * 60 * 60 * 1000)
+        : undefined
+
+      certificate = await CertificateModel.findOneAndUpdate(
+        tenantQuery(req, { userId: req.user?.mongoId, courseId: req.body.courseId, revokedAt: { $exists: false } }),
+        {
+          $setOnInsert: {
+            tenantId: req.tenant?.mongoId,
+            userId: req.user?.mongoId,
+            courseId: req.body.courseId,
+            certificateNumber: `SF-${Date.now()}-${String(req.user?.mongoId).slice(-5)}`,
+            issuedAt,
+            expiresAt,
+          },
+        },
+        { upsert: true, returnDocument: 'after' },
+      )
+    }
+
+    res.status(201).json({
+      completion: completion ? serializeCompletion(completion) : completion,
+      certificate: certificate ? serializeCertificate(certificate) : null,
+    })
   }),
 )

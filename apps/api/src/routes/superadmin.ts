@@ -8,6 +8,32 @@ import { serializeTenant } from '../utils/serialize.js'
 
 export const superadminRouter = Router()
 
+superadminRouter.get(
+  '/tenants',
+  requireAuth,
+  requireRoles('superadmin'),
+  asyncHandler(async (_, res) => {
+    const tenants = await TenantModel.find({ status: { $ne: 'archived' } }).sort({ name: 1 })
+    res.json({ tenants: tenants.map(serializeTenant) })
+  }),
+)
+
+superadminRouter.get(
+  '/tenants/:id',
+  requireAuth,
+  requireRoles('superadmin'),
+  asyncHandler(async (req, res) => {
+    const tenant = await TenantModel.findOne({ _id: req.params.id, status: { $ne: 'archived' } })
+
+    if (!tenant) {
+      res.status(404).json({ error: 'Tenant not found' })
+      return
+    }
+
+    res.json({ tenant: serializeTenant(tenant) })
+  }),
+)
+
 superadminRouter.post(
   '/tenants',
   requireAuth,
@@ -36,5 +62,36 @@ superadminRouter.post(
 
     req.audit = { action: 'tenant.create', resourceType: 'Tenant', resourceId: tenant.id }
     res.status(201).json({ tenant: serializeTenant(tenant) })
+  }),
+)
+
+superadminRouter.patch(
+  '/tenants/:id',
+  requireAuth,
+  requireRoles('superadmin'),
+  auditAction('tenant.update', 'Tenant'),
+  asyncHandler(async (req, res) => {
+    const tenant = await TenantModel.findOneAndUpdate(
+      { _id: req.params.id },
+      {
+        $set: {
+          name: req.body.name,
+          slug: req.body.slug ? normalizeTenantSlug(req.body.slug) : undefined,
+          domains: req.body.domains,
+          status: req.body.status,
+          branding: req.body.branding,
+          settings: req.body.settings,
+        },
+      },
+      { returnDocument: 'after' },
+    )
+
+    if (!tenant) {
+      res.status(404).json({ error: 'Tenant not found' })
+      return
+    }
+
+    req.audit = { action: 'tenant.update', resourceType: 'Tenant', resourceId: tenant.id }
+    res.json({ tenant: serializeTenant(tenant) })
   }),
 )

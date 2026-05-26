@@ -1,4 +1,18 @@
-import type { AuthSessionDTO, CourseDTO, SyncRequest, SyncResponse, TenantDTO, XapiStatement } from '@soteria-forge/shared'
+import type {
+  AdminReportDTO,
+  AssignCourseInput,
+  AuthSessionDTO,
+  CertificateDTO,
+  CourseDTO,
+  CreateUserInput,
+  EnrollmentDTO,
+  ImportUsersInput,
+  SyncRequest,
+  SyncResponse,
+  TenantDTO,
+  UserDTO,
+  XapiStatement,
+} from '@soteria-forge/shared'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 
@@ -44,7 +58,10 @@ export const api = {
     return request<{ tenant: TenantDTO }>('/api/tenant')
   },
   courses() {
-    return request<{ courses: CourseDTO[]; enrollments: unknown[] }>('/api/courses')
+    return request<{ courses: CourseDTO[]; enrollments: EnrollmentDTO[] }>('/api/courses')
+  },
+  course(id: string) {
+    return request<{ course: CourseDTO }>(`/api/courses/${id}`)
   },
   completeLesson(payload: Record<string, unknown>) {
     return request('/api/completions', {
@@ -71,8 +88,36 @@ export const api = {
     })
   },
   adminCompletionReport() {
-    return request<{ summary: Record<string, number>; enrollments: unknown[]; completions: unknown[] }>(
-      '/api/admin/reports/completions',
+    return request<AdminReportDTO>('/api/admin/reports/completions')
+  },
+  adminUsers() {
+    return request<{ users: UserDTO[] }>('/api/admin/users')
+  },
+  adminCreateUser(payload: CreateUserInput) {
+    return request<{ user: UserDTO; temporaryPassword?: string }>('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  adminImportUsers(payload: ImportUsersInput) {
+    return request<{ imported: UserDTO[]; rejected: Array<{ email?: string; reason: string }>; temporaryPassword: string }>(
+      '/api/admin/users/import',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
     )
+  },
+  adminEnrollments() {
+    return request<{ enrollments: EnrollmentDTO[] }>('/api/admin/enrollments')
+  },
+  adminAssignCourse(payload: AssignCourseInput) {
+    return request<{ assignments: EnrollmentDTO[] }>('/api/admin/assignments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+  adminCertificates() {
+    return request<{ certificates: CertificateDTO[] }>('/api/admin/certificates')
   },
 }

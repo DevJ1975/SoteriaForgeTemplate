@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { BookOpenCheck, Building2, CopyPlus, FileStack, LibraryBig, RadioTower, ShieldCheck, WandSparkles } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type TenantDTO } from '@soteria-forge/shared'
+import { consoleApi } from './services/api'
 
 const tenantName = ref('Acme Industrial Services')
 const tenantSlug = computed(() => normalizeTenantSlug(tenantName.value))
 const courseTitle = ref('Confined Space Entry Refresher')
 const sopSource = ref('Paste an SOP, toolbox talk, or safety bulletin here to draft modules, quiz checks, and sign-off steps.')
+const email = ref('superadmin@soteriaforge.local')
+const password = ref('SoteriaForgeDemo!2026')
+const tenantLoginSlug = ref('demo')
+const status = ref('Sign in to manage tenants and course drafts.')
+const isLoggedIn = ref(Boolean(localStorage.getItem('soteria-forge-console:token')))
+const tenants = ref<TenantDTO[]>([])
+const selectedTenantSlug = ref('demo')
+const savedCourse = ref<CourseDTO | null>(null)
 
 const tenantPreview = computed<TenantDTO>(() => ({
   id: 'preview',
@@ -72,6 +81,60 @@ const coursePreview = computed<CourseDTO>(() => ({
     },
   ],
 }))
+
+async function login() {
+  status.value = 'Signing in'
+  await consoleApi.login(email.value, password.value, tenantLoginSlug.value)
+  isLoggedIn.value = true
+  status.value = 'Signed in as superadmin'
+  await loadTenants()
+}
+
+async function loadTenants() {
+  const response = await consoleApi.tenants()
+  tenants.value = response.tenants
+  selectedTenantSlug.value = tenants.value[0]?.slug ?? 'demo'
+}
+
+async function provisionTenant() {
+  status.value = 'Provisioning tenant'
+  const response = await consoleApi.createTenant({
+    name: tenantPreview.value.name,
+    slug: tenantPreview.value.slug,
+    domains: tenantPreview.value.domains,
+    status: tenantPreview.value.status,
+    branding: tenantPreview.value.branding,
+    settings: tenantPreview.value.settings,
+  })
+  selectedTenantSlug.value = response.tenant.slug
+  status.value = `Provisioned ${response.tenant.name}`
+  await loadTenants()
+}
+
+async function saveDraftCourse() {
+  status.value = 'Saving course draft'
+  localStorage.setItem('soteria-forge-console:tenantSlug', selectedTenantSlug.value)
+  const response = await consoleApi.createCourse(coursePreview.value)
+  savedCourse.value = response.course
+  status.value = `Saved draft: ${response.course.title}`
+}
+
+async function publishDraftCourse() {
+  if (!savedCourse.value) return
+  status.value = 'Publishing course'
+  localStorage.setItem('soteria-forge-console:tenantSlug', selectedTenantSlug.value)
+  const response = await consoleApi.publishCourse(savedCourse.value.id)
+  savedCourse.value = response.course
+  status.value = `Published: ${response.course.title}`
+}
+
+onMounted(() => {
+  if (isLoggedIn.value) {
+    void loadTenants().catch((error) => {
+      status.value = error instanceof Error ? error.message : 'Unable to load tenants'
+    })
+  }
+})
 </script>
 
 <template>
@@ -94,12 +157,30 @@ const coursePreview = computed<CourseDTO>(() => ({
         <div>
           <p>Superadmin console</p>
           <h1>Provision tenants and forge field-ready courses</h1>
+          <span>{{ status }}</span>
         </div>
-        <button class="primary-action" type="button">
+        <button class="primary-action" type="button" @click="saveDraftCourse" :disabled="!isLoggedIn">
           <CopyPlus :size="18" aria-hidden="true" />
-          Clone Template
+          Save Draft
         </button>
       </header>
+
+      <section v-if="!isLoggedIn" class="console-login panel">
+        <h2>Superadmin sign in</h2>
+        <label>
+          Email
+          <input v-model="email" type="email" />
+        </label>
+        <label>
+          Password
+          <input v-model="password" type="password" />
+        </label>
+        <label>
+          Login tenant
+          <input v-model="tenantLoginSlug" />
+        </label>
+        <button class="primary-action" type="button" @click="login">Sign In</button>
+      </section>
 
       <section class="console-grid">
         <article class="panel">
@@ -116,6 +197,17 @@ const coursePreview = computed<CourseDTO>(() => ({
             <span>Offline mode</span>
             <strong>Enabled</strong>
           </div>
+          <button class="primary-action" type="button" :disabled="!isLoggedIn" @click="provisionTenant">
+            <Building2 :size="18" aria-hidden="true" />
+            Provision Tenant
+          </button>
+          <label>
+            Draft target tenant
+            <select v-model="selectedTenantSlug">
+              <option value="demo">demo</option>
+              <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.slug">{{ tenant.name }}</option>
+            </select>
+          </label>
         </article>
 
         <article class="panel">
@@ -147,7 +239,25 @@ const coursePreview = computed<CourseDTO>(() => ({
               <small>{{ lesson.kind }}</small>
             </div>
           </div>
+          <button class="primary-action" type="button" :disabled="!isLoggedIn" @click="saveDraftCourse">
+            <WandSparkles :size="18" aria-hidden="true" />
+            Save Draft To Tenant
+          </button>
+          <button class="secondary-action" type="button" :disabled="!savedCourse" @click="publishDraftCourse">
+            Publish Saved Draft
+          </button>
         </article>
+      </section>
+
+      <section class="tenant-list panel">
+        <h2>Provisioned tenants</h2>
+        <div class="module-list">
+          <div v-for="tenant in tenants" :key="tenant.id">
+            <Building2 :size="16" aria-hidden="true" />
+            <span>{{ tenant.name }}</span>
+            <small>{{ tenant.slug }}</small>
+          </div>
+        </div>
       </section>
     </section>
   </main>
