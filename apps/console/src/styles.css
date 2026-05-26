@@ -65,7 +65,7 @@ textarea {
 }
 
 .brand-lockup img {
-  width: min(190px, 100%);
+  width: min(220px, 100%);
   height: auto;
   object-fit: contain;
 }

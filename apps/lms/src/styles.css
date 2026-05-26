@@ -269,7 +269,7 @@ a:focus-visible {
 }
 
 .sidebar-brand img {
-  width: 116px;
+  width: 136px;
   height: auto;
   object-fit: contain;
 }
@@ -1350,7 +1350,7 @@ input:focus {
 }
 
 .sidebar-brand img {
-  width: min(172px, 100%);
+  width: min(198px, 100%);
   filter: drop-shadow(0 8px 16px rgb(0 0 0 / 22%));
 }
 
@@ -2089,8 +2089,8 @@ input:focus {
 }
 
 .catalog-brand img {
-  width: min(184px, 48vw);
-  height: 34px;
+  width: min(212px, 52vw);
+  height: 40px;
   object-fit: contain;
 }
 
@@ -2333,8 +2333,8 @@ input:focus {
 }
 
 .public-logo img {
-  width: min(178px, 46vw);
-  height: 36px;
+  width: min(210px, 52vw);
+  height: 44px;
   object-fit: contain;
 }
 
