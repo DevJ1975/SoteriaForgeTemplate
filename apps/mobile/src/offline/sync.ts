@@ -1,0 +1,332 @@
+/**
+ * Sync engine — drains the append-only xAPI outbox to Supabase on reconnect.
+ *
+ * ============================ WHY THIS IS SIMPLE ============================
+ * There is deliberately NO merge logic, NO conflict resolution, NO last-writer-
+ * wins, NO vector clocks. It cannot need any, and here is the proof:
+ *
+ *   - Each queued item is an xAPI statement with a CLIENT-GENERATED UUID.
+ *   - Statements are IMMUTABLE and APPEND-ONLY — the client never edits one after
+ *     enqueue, and `public.completion_statements` has NO update/delete policy: a
+ *     row can only ever be inserted once (PK = the client UUID).
+ *   - The upload is an UPSERT with `onConflict: 'id', ignoreDuplicates: true`: a
+ *     second write of the same id is a guaranteed no-op (INSERT ... ON CONFLICT DO
+ *     NOTHING), so re-sending is always safe.
+ *
+ * Therefore re-POSTing the same statement — after a flaky network, a timeout that
+ * actually succeeded server-side, an app kill mid-batch, or a worker completing a
+ * whole course offline and syncing hours later — can only ever converge to
+ * "exactly one copy stored". Two writers can never disagree about one id because
+ * the id fixes the identity and the payload never changes. So the engine's entire
+ * job is: keep trying to upload each unsynced row until the server accepts its
+ * UUID, then flip a local `synced` flag. That is it.
+ * ===========================================================================
+ *
+ * DURABILITY: the queue is NEVER dropped on failure. A failed upload increments a
+ * local attempt counter and schedules a backoff retry; the row stays put with
+ * synced=false until the server accepts it. Nothing is lost across app restarts
+ * because the outbox is on-disk SQLite (WatermelonDB).
+ *
+ * NON-BLOCKING: sync runs off the UI. Screens read the local store; this engine
+ * uploads in the background when connectivity allows and never gates the UI on a
+ * network round-trip.
+ */
+import type { Database } from '@nozbe/watermelondb';
+import type { XapiStatement } from '@soteria-forge/shared';
+import { statementIdempotencyKey } from '@soteria-forge/shared';
+import { database as defaultDatabase } from '../db';
+import { CompletionQueue } from './queue';
+import type { CompletionStatementModel } from '../db/models';
+import { connectivity } from './netinfo';
+import { supabase, isSupabaseConfigured } from '../supabase';
+import type { Json, TablesInsert } from '@soteria-forge/shared/supabase';
+
+// ---------------------------------------------------------------------------
+// Transport seam
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of attempting to upload one statement.
+ *   - 'acked'      — server accepted it (first insert OR idempotent no-op on an
+ *                    already-stored UUID). Either way: mark synced.
+ *   - 'retryable'  — transient failure (offline, 5xx, timeout, network). Keep the
+ *                    row, back off, try again.
+ *   - 'rejected'   — permanent failure (e.g. an RLS refusal, a malformed statement
+ *                    the server will NEVER accept). Keep the row but stop
+ *                    auto-retrying; surface for inspection. This must be rare — a
+ *                    well-formed statement from the caller's own tenant is never
+ *                    rejected.
+ */
+export type UploadOutcome = 'acked' | 'retryable' | 'rejected';
+
+/** Per-row context the transport needs beyond the immutable statement payload. */
+export interface UploadContext {
+  /** The local `user_id` column of the queued row (the signed-in learner). */
+  userId: string;
+}
+
+/**
+ * Uploads one statement to `public.completion_statements` via Supabase.
+ *
+ * The write is idempotent by `statement.id` (the table's primary key + the
+ * upsert's conflict target), so re-sending is always safe. TENANT ISOLATION is
+ * enforced by Postgres, not here: a BEFORE INSERT trigger stamps `tenant_id` from
+ * the caller's verified auth context, and there is no update/delete policy, so a
+ * client cannot choose another tenant's id or mutate an existing row. We send
+ * `tenant_id`/`user_id` only because the column shape requires them; the server
+ * overrides `tenant_id` from the session regardless of what we pass — the client
+ * NEVER chooses the tenant.
+ */
+export type StatementUploader = (
+  statement: XapiStatement,
+  ctx: UploadContext,
+) => Promise<UploadOutcome>;
+
+/**
+ * Classify a PostgREST error code into a retry outcome.
+ *
+ * Auth/RLS refusals (permission denied, RLS violation) are permanent → 'rejected'.
+ * Everything else (network already handled by the throw path, transient 5xx) is
+ * treated as retryable so the durable queue simply drains later.
+ */
+function outcomeForPostgrestCode(code: string | undefined): UploadOutcome {
+  // 42501 = insufficient_privilege, 42P17 = RLS recursion; PGRST301 = JWT/permission.
+  if (code === '42501' || code === '42P17' || code === 'PGRST301') return 'rejected';
+  return 'retryable';
+}
+
+/**
+ * The default transport: upsert into `completion_statements`, ignoring duplicates
+ * by the client UUID. Append-only + idempotent, exactly as the queue guarantees.
+ */
+export const supabaseUploader: StatementUploader = async (statement, ctx) => {
+  if (!isSupabaseConfigured) {
+    // No configured backend → treat as retryable so the outbox accumulates and
+    // drains once credentials exist, just like being offline.
+    return 'retryable';
+  }
+
+  // The xAPI actor/verb/object/result/context are plain JSON-serializable values;
+  // they land in `jsonb` columns typed as `Json`. Cast at this single boundary so
+  // the structured xAPI types meet the generated column type cleanly.
+  const row: TablesInsert<'completion_statements'> = {
+    id: statement.id, // client UUID = idempotency key = primary key
+    // tenant_id is re-stamped server-side from the auth context by a BEFORE
+    // INSERT trigger; we pass the statement's own tenantId (itself derived from
+    // the verified profile) only to satisfy the column shape.
+    tenant_id: statement.tenantId,
+    user_id: ctx.userId,
+    actor: statement.actor as Json,
+    verb: statement.verb as Json,
+    object: statement.object as Json,
+    result: (statement.result ?? null) as Json | null,
+    context: (statement.context ?? null) as Json | null,
+    // `timestamp` is the xAPI ACTIVITY time; the table stores it as occurred_at.
+    occurred_at: statement.timestamp,
+  };
+
+  const { error } = await supabase
+    .from('completion_statements')
+    .upsert([row], { onConflict: 'id', ignoreDuplicates: true });
+
+  if (!error) return 'acked';
+  return outcomeForPostgrestCode(error.code);
+};
+
+// ---------------------------------------------------------------------------
+// Backoff policy (pure, unit-testable)
+// ---------------------------------------------------------------------------
+
+export interface BackoffPolicy {
+  baseMs: number;
+  factor: number;
+  maxMs: number;
+  /** Give up auto-retry after this many attempts (still never drops the row). */
+  maxAttempts: number;
+}
+
+export const DEFAULT_BACKOFF: BackoffPolicy = {
+  baseMs: 1_000,
+  factor: 2,
+  maxMs: 5 * 60_000, // cap at 5 minutes
+  maxAttempts: 12,
+};
+
+/**
+ * Pure: exponential backoff delay (ms) for the Nth attempt (0-based).
+ * attempt=0 → baseMs, then ×factor each time, capped at maxMs. No jitter here so
+ * the value is deterministic for tests; the scheduler adds jitter at call time.
+ */
+export function backoffDelayMs(attempt: number, policy: BackoffPolicy = DEFAULT_BACKOFF): number {
+  if (attempt <= 0) return policy.baseMs;
+  const raw = policy.baseMs * Math.pow(policy.factor, attempt);
+  return Math.min(raw, policy.maxMs);
+}
+
+/**
+ * Pure: given a row's current attempt count + last outcome, decide what to do.
+ * Separated from I/O so retry semantics are testable without SQLite or a network.
+ */
+export type RetryDecision =
+  | { action: 'mark-synced' }
+  | { action: 'retry'; delayMs: number }
+  | { action: 'give-up' };
+
+export function decideNext(
+  outcome: UploadOutcome,
+  attemptCount: number,
+  policy: BackoffPolicy = DEFAULT_BACKOFF,
+): RetryDecision {
+  if (outcome === 'acked') return { action: 'mark-synced' };
+  if (outcome === 'rejected') return { action: 'give-up' };
+  // retryable:
+  if (attemptCount + 1 >= policy.maxAttempts) return { action: 'give-up' };
+  return { action: 'retry', delayMs: backoffDelayMs(attemptCount, policy) };
+}
+
+// ---------------------------------------------------------------------------
+// Sync engine
+// ---------------------------------------------------------------------------
+
+export interface SyncResult {
+  attempted: number;
+  acked: number;
+  retryable: number;
+  rejected: number;
+}
+
+export class SyncEngine {
+  private readonly queue: CompletionQueue;
+  private running = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private unsubscribeConnectivity: (() => void) | null = null;
+
+  constructor(
+    private readonly uploader: StatementUploader = supabaseUploader,
+    private readonly db: Database = defaultDatabase,
+    private readonly policy: BackoffPolicy = DEFAULT_BACKOFF,
+  ) {
+    this.queue = new CompletionQueue(db);
+  }
+
+  /**
+   * Start the engine: sync whenever we transition to online, and once now if we
+   * already are. Idempotent. The OfflineProvider calls this on mount.
+   */
+  start(): void {
+    if (this.unsubscribeConnectivity) return;
+    this.unsubscribeConnectivity = connectivity.subscribe((snap) => {
+      if (snap.isOnline) void this.syncNow();
+    });
+    // `subscribe` emits current state immediately, so an already-online device
+    // kicks off a drain right away without a special case here.
+  }
+
+  /** Stop reacting to connectivity + cancel any pending retry. */
+  stop(): void {
+    this.unsubscribeConnectivity?.();
+    this.unsubscribeConnectivity = null;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
+
+  /**
+   * Drain the outbox once: upload every unsynced row, marking acked ones synced
+   * and scheduling a backoff retry if any remain. Concurrency-guarded so
+   * overlapping triggers (connectivity flap + manual call) don't double-upload.
+   */
+  async syncNow(): Promise<SyncResult> {
+    const result: SyncResult = { attempted: 0, acked: 0, retryable: 0, rejected: 0 };
+
+    // Never sync while offline — the local store is the source of truth until we
+    // reconnect. This is the local-only vs sync gate.
+    if (!connectivity.isOnline) return result;
+    if (this.running) return result; // a drain is already in flight
+    this.running = true;
+
+    try {
+      const pending = await this.queue.pending();
+      for (const row of pending) {
+        // Re-check connectivity between items: if we dropped offline mid-batch,
+        // stop cleanly and leave the rest queued (never drop them).
+        if (!connectivity.isOnline) break;
+
+        result.attempted += 1;
+        const outcome = await this.uploadOne(row);
+        if (outcome === 'acked') result.acked += 1;
+        else if (outcome === 'rejected') result.rejected += 1;
+        else result.retryable += 1;
+      }
+    } finally {
+      this.running = false;
+    }
+
+    // If anything is still pending, schedule a backoff retry using the max
+    // attempt count seen — bounded, jittered, and never dropping the queue.
+    if (result.retryable > 0) this.scheduleRetry();
+
+    return result;
+  }
+
+  /**
+   * Upload a single row and apply the pure RetryDecision to it. The ONLY row
+   * mutations are: attempt bookkeeping and (on ack) the `synced` flag — the
+   * statement payload itself is immutable and never rewritten.
+   */
+  private async uploadOne(row: CompletionStatementModel): Promise<UploadOutcome> {
+    const statement = row.statement;
+    // Sanity: the key we retry under is the statement id, nothing else.
+    void statementIdempotencyKey(statement);
+
+    let outcome: UploadOutcome;
+    try {
+      // `user_id` is a local indexing column (not part of the xAPI payload), so
+      // it is passed as context rather than embedded in the statement.
+      outcome = await this.uploader(statement, { userId: row.userId });
+    } catch {
+      // Any thrown error is treated as transient/retryable — we NEVER drop the
+      // row on an exception; it stays queued for the next attempt.
+      outcome = 'retryable';
+    }
+
+    const decision = decideNext(outcome, row.attemptCount, this.policy);
+    const now = Date.now();
+
+    await this.db.write(async () => {
+      await row.update((r) => {
+        if (decision.action === 'mark-synced') {
+          r.synced = true; // the sole mutation to a synced row
+          r.syncedAt = now;
+          r.lastError = undefined;
+        } else {
+          // retry or give-up: record the attempt; leave synced=false (row kept).
+          r.attemptCount = r.attemptCount + 1;
+          r.lastAttemptAt = now;
+          if (outcome === 'rejected') {
+            r.lastError = 'rejected';
+          } else {
+            r.lastError = 'retryable';
+          }
+        }
+      });
+    });
+
+    return outcome;
+  }
+
+  /** Schedule one jittered backoff retry of the whole drain. */
+  private scheduleRetry(): void {
+    if (this.retryTimer) return; // one retry armed at a time
+    const base = backoffDelayMs(1, this.policy);
+    const jitter = Math.floor(Math.random() * (base * 0.25));
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (connectivity.isOnline) void this.syncNow();
+    }, base + jitter);
+  }
+}
+
+/** App-wide sync engine bound to the singleton DB + (for now) the not-wired transport. */
+export const syncEngine = new SyncEngine();

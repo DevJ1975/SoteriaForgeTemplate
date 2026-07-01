@@ -1,11 +1,28 @@
 node_modules
 dist
+.turbo
+*.tsbuildinfo
+
+# Env / secrets — never commit real values (only *.example files are tracked)
 .env
 .env.local
+.env.*
+!.env.example
+
+# AWS Amplify Gen 2 generated outputs (real pool/client ids) — example shape is tracked
+amplify_outputs.json
+backend/amplify_outputs.json
+.amplify
+
+# Expo / React Native (managed workflow — native dirs are prebuild-generated)
+.expo
+.expo-shared
+apps/mobile/ios
+apps/mobile/android
+*.keystore
+*.jks
+
 .DS_Store
 npm-debug.log*
 coverage
 .vercel
-
-# Self-contained local MongoDB (binaries, data, logs)
-.mongodb

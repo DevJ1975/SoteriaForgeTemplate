@@ -1,0 +1,36 @@
+# Soteria Forge — Supabase CLI config.
+# The LIVE project (ref bgnadngztngkwzneknhd) is already provisioned & migrated;
+# this file lets `supabase link` / `db push` / `gen types` operate against it and
+# lets `supabase start` run an equivalent local stack from ./migrations + ./seed.sql.
+project_id = "bgnadngztngkwzneknhd"
+
+[db]
+# Match the live project's Postgres major version so local == remote.
+major_version = 17
+
+[db.seed]
+# Applied by `supabase db reset` (local) after migrations run.
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[storage]
+enabled = true
+# Bucket 'tenant-media' is created by migration 03_storage; objects are
+# tenant-scoped by the first path segment (<tenant_id>/...) and served via
+# time-limited signed URLs. Keep this generous for training video/media.
+file_size_limit = "500MiB"
+
+[auth]
+enabled = true
+# Email/password auth (Supabase Auth replaces Cognito). No anonymous sign-ins.
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+# SECURITY (review Finding 3): require email confirmation so a signup's `email`
+# claim is actually VERIFIED. redeem_invitation() matches the invite's email against
+# the session email; without confirmation that email is attacker-chosen, making the
+# invite token the sole gate. Confirmation makes the email a real second factor.
+# NOTE: this file drives local `supabase start`; the LIVE project's setting must be
+# toggled to match in the Supabase dashboard (Auth → Providers → Email → Confirm email).
+enable_confirmations = true

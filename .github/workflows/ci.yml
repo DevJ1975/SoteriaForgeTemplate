@@ -1,0 +1,59 @@
+name: CI
+
+# Phase-0 CI scope: the rebuild is defined-as-code and UNDEPLOYED. The React
+# Native workspace (apps/mobile) and packages/ui (the Soteria Forge UI kit, RN
+# source consumed via Metro), plus the web apps (apps/web React, apps/console Vue),
+# need framework toolchains + a lockfile that only exist after `npm install`, so
+# they can't be type-checked here yet. CI verifies the one workspace that IS
+# self-contained:
+#   - @soteria-forge/shared : the domain contract (type-check + unit tests)
+# As the apps/ui become installable (lockfile committed), extend the matrix.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # A single pinned TypeScript is all these pure-TS packages need to build.
+      - name: Install TypeScript
+        run: npm install -g typescript@5.9.3
+
+      - name: shared — type-check library source
+        working-directory: packages/shared
+        run: |
+          # The unit tests import node:test / node:assert, which need @types/node
+          # (a declared devDep, not installed in this lockfile-free CI). Type-check
+          # the library source strictly by excluding the test files; the tests are
+          # still executed for real below via Node's built-in runner.
+          cat > tsconfig.ci.json <<'JSON'
+          { "extends": "./tsconfig.json", "exclude": ["src/**/*.test.ts", "src/__tests__/**"] }
+          JSON
+          tsc --noEmit -p tsconfig.ci.json
+          rm -f tsconfig.ci.json
+
+      - name: shared — build + run unit tests
+        working-directory: packages/shared
+        run: |
+          # tsc emits JS even though the test files can't resolve @types/node types
+          # (no noEmitOnError); the emitted dist is what we execute. node --test
+          # needs no type packages at runtime.
+          tsc || echo "tsc reported test-file type notes (expected without @types/node); dist emitted"
+          test -f dist/index.js || { echo "::error::shared did not emit dist/index.js"; exit 1; }
+          node --test "dist/**/*.test.js"

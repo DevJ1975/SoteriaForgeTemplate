@@ -1,24 +1,24 @@
 {
-  "name": "soteria-forge-template",
+  "name": "soteria-forge",
   "private": true,
   "version": "0.1.0",
+  "description": "Mobile-first, offline-capable, multi-tenant training platform (React Native + Expo, Supabase, Cloudflare Stream). Turborepo monorepo.",
+  "packageManager": "npm@10.9.7",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build --workspace @soteria-forge/shared && npm run db:start && concurrently -n lms,api,console -c cyan,green,magenta \"npm run dev --workspace @soteria-forge/lms\" \"npm run dev --workspace @soteria-forge/api\" \"npm run dev --workspace @soteria-forge/console\"",
-    "dev:lms": "npm run dev --workspace @soteria-forge/lms",
-    "dev:api": "npm run dev --workspace @soteria-forge/api",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "dev": "turbo run dev",
+    "dev:mobile": "npm run start --workspace @soteria-forge/mobile",
     "dev:console": "npm run dev --workspace @soteria-forge/console",
-    "db:start": "scripts/mongo.sh start",
-    "db:stop": "scripts/mongo.sh stop",
-    "db:status": "scripts/mongo.sh status",
-    "db:restart": "scripts/mongo.sh restart",
-    "build": "npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/lms && npm run build --workspace @soteria-forge/console && npm run build --workspace @soteria-forge/api",
-    "typecheck": "npm run build --workspace @soteria-forge/shared && npm run typecheck --workspace @soteria-forge/lms && npm run typecheck --workspace @soteria-forge/console && npm run typecheck --workspace @soteria-forge/api"
+    "dev:web": "npm run dev --workspace @soteria-forge/web"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "turbo": "^2.10.2"
   }
 }

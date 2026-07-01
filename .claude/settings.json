@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(//home/user/SoteriaForgeTemplate/**)",
+      "Edit(//home/user/SoteriaForgeTemplate/**)",
+      "Write(//home/user/SoteriaForgeTemplate/**)",
+      "Glob(//home/user/SoteriaForgeTemplate/**)",
+      "Grep(//home/user/SoteriaForgeTemplate/**)",
+      "Bash(npm run build:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run dev:*)",
+      "Bash(turbo run build:*)",
+      "Bash(turbo run test:*)",
+      "Bash(turbo run typecheck:*)",
+      "Bash(turbo run lint:*)",
+      "Bash(node --test:*)",
+      "Bash(tsc:*)",
+      "Bash(vue-tsc:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(rg:*)",
+      "Bash(sh -n:*)",
+      "Bash(chmod +x:*)",
+      "Bash(npx ampx sandbox:*)",
+      "Bash(npx ampx generate:*)",
+      "Bash(npx expo:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(gh pr:*)",
+      "Bash(npm publish:*)",
+      "Bash(npx eas:*)",
+      "Bash(npx cdk deploy:*)"
+    ],
+    "deny": [
+      "Read(//home/user/SoteriaForgeTemplate/**/.env)",
+      "Read(//home/user/SoteriaForgeTemplate/**/.env.*)",
+      "Read(//home/user/SoteriaForgeTemplate/**/amplify_outputs.json)",
+      "Read(//home/user/SoteriaForgeTemplate/**/*.pem)",
+      "Read(//home/user/SoteriaForgeTemplate/**/.aws/**)",
+      "Read(//home/user/SoteriaForgeTemplate/**/id_rsa)",
+      "Bash(aws * delete-*:*)",
+      "Bash(aws s3 rb:*)",
+      "Bash(aws s3 rm:*)",
+      "Bash(npx cdk destroy:*)",
+      "Bash(rm -rf /:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-destructive-aws.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-secrets.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && (turbo run test 2>/dev/null || npm test --workspaces --if-present)",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && (turbo run test 2>/dev/null || npm test --workspaces --if-present)",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Soteria Forge",
+    "slug": "soteria-forge-mobile",
+    "scheme": "soteriaforge",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "bundleIdentifier": "com.soteriaforge.learner",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.soteriaforge.learner",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1A2E"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "expo-secure-store",
+      [
+        "react-native-video",
+        {
+          "enableBackgroundAudio": false,
+          "enableNotificationControls": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    }
+  }
+}

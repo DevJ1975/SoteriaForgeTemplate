@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@lucide/vue": "^1.16.0",
+    "@supabase/supabase-js": "^2.45.0",
     "@vitejs/plugin-vue": "^6.0.2",
     "@soteria-forge/shared": "^0.1.0",
     "typescript": "^5.9.3",
