@@ -51,9 +51,13 @@ Then re-run `get_advisors(security)` (or dashboard → Advisors) to confirm the
 
 ## 2. Security follow-ups
 
-- **Review `public.rls_auto_enable()`** — a `SECURITY DEFINER`, anon-executable function that **predates
-  this rebuild** (not created here). Confirm what it does; `REVOKE EXECUTE ... FROM anon, authenticated`
-  or drop it if unused. Flagged by the security advisor.
+- **`public.rls_auto_enable()`** — investigated: it is a `SECURITY DEFINER` **event-trigger** function
+  that auto-enables RLS on newly created `public` tables (predates this rebuild). A direct RPC call
+  errors (`pg_event_trigger_ddl_commands()` only works inside a DDL event), so the risk is nil, but it
+  was granted to `PUBLIC/anon/authenticated` (advisor 0028/0029). **Migration `12` revokes that EXECUTE**
+  (the event trigger still fires — migrations run as `postgres`). Apply with `supabase db push`.
+- **Migration `12` also carries perf remediations** from the live e2e debug: RLS init-plan `(select …)`
+  wrapping (advisor 0003) and covering indexes on foreign keys (advisor 0001) — semantics unchanged.
 - Re-run `get_advisors(security)` (or dashboard → Advisors) after the toggles above; the
   `auth_leaked_password_protection` warning should clear once leaked-password protection is on.
 - The `current_tenant_id` / `current_user_role` / `provision_tenant` / `redeem_invitation` advisor
