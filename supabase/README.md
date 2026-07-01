@@ -20,7 +20,7 @@ Backend pivot: **AWS/Amplify → Supabase.** Tenant isolation (the #1 rule) is n
 | **ref** | `bgnadngztngkwzneknhd` |
 | **url** | `https://bgnadngztngkwzneknhd.supabase.co` |
 | **applied migrations** | `01_core_schema`, `02_rls_policies`, `03_storage`, `04_harden_function_grants`, `05_stamp_only_for_authenticated` |
-| **seeded** | tenants `atl-curb-to-cabin`, `demo`; a published course (`Confined Space Entry`); 3 demo users (below) |
+| **seeded** | tenants `atl-curb-to-cabin`, `demo`; a published course (`Confined Space Entry`, 1 module + 2 lessons); 4 demo users (below) |
 
 ## Demo accounts (seeded — password `SoteriaForge!2026`)
 
@@ -88,6 +88,17 @@ token through the same flow above. Super-admin is the one role allowed to set `t
 Verified live: `super@soteria.test` provisioned tenant `acme` + its first-admin invite; the invited
 `admin@acme.test` redeemed it, became `acme`'s `tenant-admin`, and could see **only** `acme` (1
 tenant, 0 courses) — none of ATL's or demo's data.
+
+## Completions & progress
+
+Learning activity is recorded as **append-only xAPI completion statements** — one row per completed
+lesson, keyed by a client-generated UUID (idempotent; safe to sync-retry, offline-first). A worker
+inserts only their own statements (RLS `user_id = auth.uid()`); there is deliberately no UPDATE/DELETE
+policy, so the record is immutable. Each statement's `context` carries `{ course_id, lesson_id }`, and
+an `AFTER INSERT` trigger (`sync_enrollment_progress`, migration `08`) recomputes the worker's
+`enrollments.progress` / `status` from their completed **required** lessons — server-side, so a worker
+who cannot directly write `enrollments` still gets progress reflected. Verified live: completing both
+seeded lessons drove the enrollment to `completed` / 100%.
 
 ## Keys
 

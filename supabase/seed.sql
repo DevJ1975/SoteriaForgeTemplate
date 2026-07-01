@@ -52,6 +52,21 @@ on conflict (id) do update set
   tags                  = excluded.tags,
   field_readiness_score = excluded.field_readiness_score;
 
+-- ── Course content: a module + 2 required lessons under Confined Space Entry ─
+insert into public.modules (id, tenant_id, course_id, title, description, sequence) values
+  ('a1111111-0000-4000-8000-000000000001', '84f67b88-a161-49cc-95a8-2a3814f0d574',
+   '033361e5-b6bf-4266-b70b-539d9953ac5d', 'Entry Fundamentals', 'Before-entry hazard checks.', 1)
+on conflict (id) do nothing;
+
+insert into public.lessons (id, tenant_id, course_id, module_id, kind, title, description, duration_minutes, required, sequence) values
+  ('a2222222-0000-4000-8000-000000000001', '84f67b88-a161-49cc-95a8-2a3814f0d574',
+   '033361e5-b6bf-4266-b70b-539d9953ac5d', 'a1111111-0000-4000-8000-000000000001',
+   'video',      'Atmospheric Hazards', 'Oxygen-deficient & toxic atmospheres.', 9, true, 1),
+  ('a2222222-0000-4000-8000-000000000002', '84f67b88-a161-49cc-95a8-2a3814f0d574',
+   '033361e5-b6bf-4266-b70b-539d9953ac5d', 'a1111111-0000-4000-8000-000000000001',
+   'reflection', 'Permit & Rescue Plan', 'Confirm the entry permit and rescue plan.', 6, true, 2)
+on conflict (id) do nothing;
+
 -- ── Demo auth users + profiles (+ one enrollment) ───────────────────────────
 -- Password for ALL demo accounts: SoteriaForge!2026
 -- Idempotent by email. Seeds auth.users directly (the standard Supabase seed
