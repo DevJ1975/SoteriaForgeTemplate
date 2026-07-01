@@ -687,6 +687,240 @@ a:focus-visible {
   font-weight: 900;
 }
 
+/* ── Reports (completion / compliance dashboard) ────────────────────────── */
+.report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.report-refresh {
+  width: auto;
+  flex: none;
+}
+
+/* Summary stat tiles. */
+.report-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.report-tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+  padding: 18px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: var(--sf-shadow-sm);
+  min-width: 0;
+}
+
+.report-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--sf-radius-sm);
+  color: var(--sf-color-blue-700);
+  background: var(--sf-color-blue-50);
+}
+
+.report-tile-icon--rate {
+  color: var(--sf-color-blue-700);
+  background: var(--sf-color-blue-50);
+}
+
+.report-tile-icon--complete {
+  color: var(--sf-status-complete);
+  background: rgb(47 111 74 / 12%);
+}
+
+.report-tile-icon--progress {
+  color: var(--sf-status-progress);
+  background: var(--sf-color-orange-50);
+}
+
+.report-tile-icon--overdue {
+  color: var(--sf-status-overdue);
+  background: rgb(200 77 47 / 10%);
+}
+
+.report-tile-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.report-tile-label {
+  color: var(--sf-text-muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.report-tile-value {
+  color: var(--sf-text-primary);
+  font-family: var(--sf-font-display);
+  font-size: 1.9rem;
+  line-height: 1.05;
+}
+
+.report-tile-sub {
+  color: var(--sf-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+/* Rollup tables (course + worker). */
+.report-table {
+  display: grid;
+  gap: 6px;
+}
+
+.report-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) 84px 84px minmax(120px, 1fr);
+  align-items: center;
+  gap: 12px;
+  border-radius: var(--sf-radius-sm);
+  padding: 10px 12px;
+  background: var(--sf-bg-subtle);
+  min-width: 0;
+}
+
+.report-row--head {
+  background: transparent;
+  padding-bottom: 4px;
+  color: var(--sf-text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.report-cell-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--sf-text-primary);
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.report-num {
+  color: var(--sf-text-secondary);
+  font-weight: 850;
+  text-align: right;
+}
+
+.report-row--head .report-num {
+  color: var(--sf-text-muted);
+}
+
+.report-worker {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.report-worker-name {
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.report-worker-email {
+  color: var(--sf-text-muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.report-rate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.report-bar {
+  display: block;
+  flex: 1;
+  min-width: 40px;
+  height: 8px;
+  border-radius: var(--sf-radius-full);
+  background: var(--sf-color-ink-100);
+  overflow: hidden;
+}
+
+.report-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--sf-radius-full);
+  background: var(--sf-status-complete);
+  transition: width var(--sf-dur-base) var(--sf-ease-out);
+}
+
+.report-rate-label {
+  min-width: 36px;
+  color: var(--sf-text-secondary);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-align: right;
+}
+
+/* Recent-completions feed. */
+.report-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--sf-radius-sm);
+  padding: 10px 12px;
+  background: var(--sf-bg-subtle);
+  min-width: 0;
+}
+
+.report-feed-row > svg {
+  flex: none;
+  color: var(--sf-status-complete);
+}
+
+.report-feed-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--sf-text-secondary);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.report-feed-text strong {
+  color: var(--sf-text-primary);
+}
+
+.report-feed-object {
+  color: var(--sf-color-blue-700);
+}
+
+.report-feed-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--sf-text-muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 @media (max-width: 980px) {
   .console-shell,
   .console-grid {
@@ -726,5 +960,24 @@ a:focus-visible {
   .roster-assign-btn {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .report-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .report-stats {
+    grid-template-columns: 1fr;
+  }
+
+  /* Collapse the numeric columns so the name + rate bar stay legible. */
+  .report-row {
+    grid-template-columns: minmax(0, 1.4fr) 60px minmax(90px, 1fr);
+  }
+
+  .report-row span:nth-child(3) {
+    display: none;
   }
 }

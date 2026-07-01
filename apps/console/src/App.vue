@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { BookOpenCheck, Building2, ClipboardList, CopyPlus, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, MailPlus, Plus, RadioTower, Rocket, ShieldCheck, Trash2, UserPlus, Users, WandSparkles } from '@lucide/vue'
+import { AlertTriangle, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, WandSparkles } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
 import {
   consoleApi,
   INVITABLE_ROLES,
+  type CompletionReport,
   type CourseEnrollment,
   type CreateCourseInput,
   type InvitableRole,
@@ -62,8 +63,9 @@ const canManageContent = computed(() =>
 // ── View switching ────────────────────────────────────────────────────────────
 // The console is a single shell; nav items switch which workspace view renders.
 // 'dashboard' is the original all-panels screen (unchanged); 'courses' and
-// 'roster' are the new content-authoring + enrollment views (admin-gated).
-type ConsoleView = 'dashboard' | 'courses' | 'roster'
+// 'roster' are the content-authoring + enrollment views (admin-gated);
+// 'reports' is the read-only completion/compliance dashboard (admin-gated).
+type ConsoleView = 'dashboard' | 'courses' | 'roster' | 'reports'
 const activeView = ref<ConsoleView>('dashboard')
 
 function goTo(view: ConsoleView) {
@@ -72,6 +74,8 @@ function goTo(view: ConsoleView) {
   // of the new views. Declared below; forward-referenced here (both are in scope
   // by the time this runs).
   if (view === 'courses' || view === 'roster') void ensureContentLoaded()
+  // The Reports view loads its own RLS-scoped rollup on first open.
+  if (view === 'reports') void ensureReportLoaded()
 }
 
 // Friendly labels for the stored group-vocabulary invite roles.
@@ -632,6 +636,100 @@ async function ensureContentLoaded() {
   await Promise.all([loadCourses(), loadRoster()])
 }
 
+// ── Reports view (completion / compliance dashboard) ───────────────────────────
+// READ-ONLY. A tenant-admin sees who has completed what. The report is computed
+// server-side from RLS-scoped reads (own tenant only) — no tenant is ever sent
+// from the UI for authorization; the view just renders the rollups.
+const report = ref<CompletionReport | null>(null)
+const reportError = ref('')
+const reportLoading = ref(false)
+const reportLoaded = ref(false)
+
+async function loadReport() {
+  if (!canManageContent.value) {
+    report.value = null
+    return
+  }
+  reportError.value = ''
+  reportLoading.value = true
+  try {
+    const { report: result } = await consoleApi.getCompletionReport()
+    report.value = result
+  } catch (error) {
+    // Surface RLS/permission or any load error inline instead of crashing.
+    reportError.value = error instanceof Error ? error.message : 'Unable to load report'
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+/** Load the report the first time an admin opens the Reports view. */
+async function ensureReportLoaded() {
+  if (reportLoaded.value || !canManageContent.value) return
+  reportLoaded.value = true
+  await loadReport()
+}
+
+/** Manual refresh — re-reads the RLS-scoped rollup on demand. */
+async function refreshReport() {
+  status.value = 'Refreshing report'
+  await loadReport()
+  status.value = report.value ? 'Report refreshed' : status.value
+}
+
+/**
+ * Relative-time label ("just now", "3h ago", "2d ago") for the completions
+ * feed. Falls back to the raw value if it is not a parseable timestamp.
+ */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return iso
+  const seconds = Math.round((Date.now() - then) / 1000)
+  if (seconds < 45) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 30) return `${days}d ago`
+  const months = Math.round(days / 30)
+  if (months < 12) return `${months}mo ago`
+  return `${Math.round(months / 12)}y ago`
+}
+
+/**
+ * Export the by-worker table as a CSV download (nice-to-have). Builds an RFC
+ * 4180-ish CSV in-memory and triggers a client download — no data leaves the
+ * browser, and it only reflects the already-RLS-scoped rows the admin can see.
+ */
+function exportWorkerCsv() {
+  if (!report.value?.byWorker.length) return
+  const escape = (value: string | number) => {
+    const text = String(value)
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+  }
+  const header = ['Worker', 'Email', 'Assigned', 'Completed', 'Avg progress %', 'Completion rate %']
+  const rows = report.value.byWorker.map((row) => [
+    row.name,
+    row.email,
+    row.assigned,
+    row.completed,
+    row.avgProgress,
+    row.completionRatePct,
+  ])
+  const csv = [header, ...rows].map((cols) => cols.map(escape).join(',')).join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'worker-completion-report.csv'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+  status.value = 'Exported by-worker report to CSV'
+}
+
 onMounted(async () => {
   // Restore any persisted Supabase session (auth.persistSession) instead of a
   // localStorage bearer token. RLS re-derives the tenant from the session.
@@ -663,6 +761,7 @@ onMounted(async () => {
         <button type="button"><WandSparkles :size="18" /> Course Creator</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'courses' }" type="button" @click="goTo('courses')"><GraduationCap :size="18" /> Courses</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'roster' }" type="button" @click="goTo('roster')"><Users :size="18" /> Roster &amp; Enrollment</button>
+        <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'reports' }" type="button" @click="goTo('reports')"><BarChart3 :size="18" /> Reports</button>
         <button v-if="canProvisionTenant" type="button"><Rocket :size="18" /> Provision Tenant</button>
         <button v-if="canInvite" type="button"><UserPlus :size="18" /> Invite Users</button>
         <button type="button"><RadioTower :size="18" /> Sync Health</button>
@@ -1134,6 +1233,152 @@ onMounted(async () => {
               </div>
             </div>
           </template>
+        </section>
+      </template>
+
+      <!-- ── Reports view (completion / compliance dashboard) ─────────────── -->
+      <template v-if="activeView === 'reports' && isLoggedIn && canManageContent">
+        <section class="content-panel panel">
+          <div class="report-head">
+            <div>
+              <h2>Completion &amp; compliance</h2>
+              <p class="content-hint">
+                Who has completed what across your tenant. Read-only; scoped to your tenant
+                server-side (RLS).
+              </p>
+            </div>
+            <button class="secondary-action report-refresh" type="button" :disabled="reportLoading" @click="refreshReport">
+              <RefreshCw :size="16" aria-hidden="true" />
+              {{ reportLoading ? 'Refreshing…' : 'Refresh' }}
+            </button>
+          </div>
+          <p v-if="reportError" class="content-error" role="alert">{{ reportError }}</p>
+        </section>
+
+        <!-- Summary stat tiles -->
+        <section class="report-stats" aria-label="Completion summary">
+          <article class="report-tile">
+            <div class="report-tile-icon report-tile-icon--rate"><TrendingUp :size="20" aria-hidden="true" /></div>
+            <div class="report-tile-body">
+              <span class="report-tile-label">Completion rate</span>
+              <strong class="report-tile-value">{{ report ? report.summary.completionRatePct : 0 }}%</strong>
+              <small class="report-tile-sub">{{ report ? report.summary.distinctWorkers : 0 }} worker(s) enrolled</small>
+            </div>
+          </article>
+          <article class="report-tile">
+            <div class="report-tile-icon report-tile-icon--complete"><CheckCircle2 :size="20" aria-hidden="true" /></div>
+            <div class="report-tile-body">
+              <span class="report-tile-label">Completed</span>
+              <strong class="report-tile-value">{{ report ? report.summary.completed : 0 }}</strong>
+              <small class="report-tile-sub">of {{ report ? report.summary.totalEnrollments : 0 }} enrollment(s)</small>
+            </div>
+          </article>
+          <article class="report-tile">
+            <div class="report-tile-icon report-tile-icon--progress"><Loader :size="20" aria-hidden="true" /></div>
+            <div class="report-tile-body">
+              <span class="report-tile-label">In progress</span>
+              <strong class="report-tile-value">{{ report ? report.summary.inProgress : 0 }}</strong>
+              <small class="report-tile-sub">{{ report ? report.summary.notStarted : 0 }} not started</small>
+            </div>
+          </article>
+          <article class="report-tile">
+            <div class="report-tile-icon report-tile-icon--overdue"><AlertTriangle :size="20" aria-hidden="true" /></div>
+            <div class="report-tile-body">
+              <span class="report-tile-label">Overdue</span>
+              <strong class="report-tile-value">{{ report ? report.summary.overdue : 0 }}</strong>
+              <small class="report-tile-sub">{{ report ? report.summary.publishedCourses : 0 }} published course(s)</small>
+            </div>
+          </article>
+        </section>
+
+        <!-- By-course table -->
+        <section class="tenant-list panel">
+          <h2>By course</h2>
+          <p v-if="reportLoading && !report" class="content-empty">Loading report…</p>
+          <p v-else-if="!report || !report.byCourse.length" class="content-empty">No enrollments yet.</p>
+          <div v-else class="report-table" role="table" aria-label="Completion by course">
+            <div class="report-row report-row--head" role="row">
+              <span role="columnheader">Course</span>
+              <span role="columnheader" class="report-num">Enrolled</span>
+              <span role="columnheader" class="report-num">Completed</span>
+              <span role="columnheader">Rate</span>
+            </div>
+            <div v-for="row in report.byCourse" :key="row.courseId" class="report-row" role="row">
+              <span class="report-cell-name" role="cell">
+                <GraduationCap :size="15" aria-hidden="true" />
+                {{ row.title }}
+              </span>
+              <span class="report-num" role="cell">{{ row.enrolled }}</span>
+              <span class="report-num" role="cell">{{ row.completed }}</span>
+              <span class="report-rate" role="cell">
+                <span class="report-bar" :title="`${row.completionRatePct}% complete`">
+                  <span class="report-bar-fill" :style="{ width: `${row.completionRatePct}%` }"></span>
+                </span>
+                <small class="report-rate-label">{{ row.completionRatePct }}%</small>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- By-worker table -->
+        <section class="tenant-list panel">
+          <div class="report-head">
+            <h2>By worker</h2>
+            <button
+              class="secondary-action report-refresh"
+              type="button"
+              :disabled="!report || !report.byWorker.length"
+              @click="exportWorkerCsv"
+            >
+              <Download :size="16" aria-hidden="true" />
+              Export CSV
+            </button>
+          </div>
+          <p v-if="reportLoading && !report" class="content-empty">Loading report…</p>
+          <p v-else-if="!report || !report.byWorker.length" class="content-empty">No workers enrolled yet.</p>
+          <div v-else class="report-table" role="table" aria-label="Completion by worker">
+            <div class="report-row report-row--head" role="row">
+              <span role="columnheader">Worker</span>
+              <span role="columnheader" class="report-num">Assigned</span>
+              <span role="columnheader" class="report-num">Completed</span>
+              <span role="columnheader">Rate</span>
+            </div>
+            <div v-for="row in report.byWorker" :key="row.userId" class="report-row" role="row">
+              <span class="report-cell-name" role="cell">
+                <Users :size="15" aria-hidden="true" />
+                <span class="report-worker">
+                  <span class="report-worker-name">{{ row.name }}</span>
+                  <small v-if="row.email" class="report-worker-email">{{ row.email }}</small>
+                </span>
+              </span>
+              <span class="report-num" role="cell">{{ row.assigned }}</span>
+              <span class="report-num" role="cell">{{ row.completed }}</span>
+              <span class="report-rate" role="cell">
+                <span class="report-bar" :title="`${row.completionRatePct}% complete`">
+                  <span class="report-bar-fill" :style="{ width: `${row.completionRatePct}%` }"></span>
+                </span>
+                <small class="report-rate-label">{{ row.completionRatePct }}%</small>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Recent completions feed -->
+        <section class="tenant-list panel">
+          <h2>Recent completions</h2>
+          <p v-if="reportLoading && !report" class="content-empty">Loading report…</p>
+          <p v-else-if="!report || !report.recentCompletions.length" class="content-empty">No completions recorded yet.</p>
+          <div v-else class="module-list">
+            <div v-for="item in report.recentCompletions" :key="item.id" class="report-feed-row">
+              <CheckCircle2 :size="16" aria-hidden="true" />
+              <span class="report-feed-text">
+                <strong>{{ item.actorName }}</strong>
+                {{ item.verb }}
+                <span class="report-feed-object">{{ item.objectLabel }}</span>
+              </span>
+              <small class="report-feed-time"><Clock :size="12" aria-hidden="true" /> {{ relativeTime(item.occurredAt) }}</small>
+            </div>
+          </div>
         </section>
       </template>
     </section>

@@ -37,6 +37,7 @@ import type {
 } from '@soteria-forge/shared'
 import { GROUP_TO_USER_ROLE, isCognitoGroup } from '@soteria-forge/shared'
 import type {
+  CompletionStatementRow,
   CourseInsert,
   CourseRow,
   CourseUpdate,
@@ -169,6 +170,147 @@ export type CourseTree = {
   course: CourseRow
   modules: ModuleRow[]
   lessons: LessonRow[]
+}
+
+// ===========================================================================
+// Completion / compliance reporting (READ-ONLY).
+// ---------------------------------------------------------------------------
+// The payoff of the learning loop: a tenant-admin sees who has completed what.
+// Every read below is RLS-scoped to the caller's own tenant (via
+// `current_tenant_id()`), so we NEVER add a client tenant filter for
+// authorization — the rollups are computed in TypeScript off the RLS-scoped
+// rows. This surface is strictly reporting: no inserts/updates/deletes.
+// ===========================================================================
+
+/** Top-line compliance counters across all of the tenant's enrollments. */
+export type ReportSummary = {
+  totalEnrollments: number
+  completed: number
+  inProgress: number
+  /** Assigned but not started (progress 0, status not completed/in-progress). */
+  notStarted: number
+  /** Past `due_at` and not completed. */
+  overdue: number
+  /** Distinct workers with at least one enrollment. */
+  distinctWorkers: number
+  /** Count of the tenant's published courses. */
+  publishedCourses: number
+  /** completed / total, as a whole-number percentage (0 when no enrollments). */
+  completionRatePct: number
+}
+
+/** Per-course rollup of its enrollments. */
+export type CourseReportRow = {
+  courseId: string
+  title: string
+  enrolled: number
+  completed: number
+  inProgress: number
+  notStarted: number
+  /** Mean of `progress` across the course's enrollments (0–100, rounded). */
+  avgProgress: number
+  completionRatePct: number
+}
+
+/** Per-worker rollup of the courses assigned to them. */
+export type WorkerReportRow = {
+  userId: string
+  name: string
+  email: string
+  assigned: number
+  completed: number
+  avgProgress: number
+  completionRatePct: number
+}
+
+/** A recent completion-statement, summarized for the activity feed. */
+export type RecentCompletionRow = {
+  id: string
+  /** Best-effort display name (joined profile → statement actor → user id). */
+  actorName: string
+  /** Human verb label pulled from the xAPI `verb` (e.g. 'completed'). */
+  verb: string
+  /** The activity/lesson label pulled from the xAPI `object`. */
+  objectLabel: string
+  occurredAt: string
+}
+
+/** The full report the console's Reports view renders. */
+export type CompletionReport = {
+  summary: ReportSummary
+  byCourse: CourseReportRow[]
+  byWorker: WorkerReportRow[]
+  recentCompletions: RecentCompletionRow[]
+}
+
+// ---------------------------------------------------------------------------
+// xAPI display helpers — completion_statements store `actor`/`verb`/`object` as
+// loosely-typed JSON (per the xAPI contract). These readers pull a display
+// string out of the common xAPI shapes without trusting any particular one, so
+// a malformed/partial statement degrades to a sensible fallback instead of
+// throwing.
+// ---------------------------------------------------------------------------
+
+/** Pull a language-map display string (`{ "en-US": "…" }`) or a plain string. */
+function pickLangMap(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  const record = asRecord(value)
+  const keys = Object.keys(record)
+  if (!keys.length) return undefined
+  // Prefer an English variant, else the first entry.
+  const key = keys.find((k) => k.toLowerCase().startsWith('en')) ?? keys[0]
+  const picked = record[key]
+  return typeof picked === 'string' ? picked : undefined
+}
+
+/** A readable verb label from an xAPI verb (`display` map or trailing id segment). */
+function verbLabel(verb: unknown): string {
+  const record = asRecord(verb)
+  const display = pickLangMap(record.display)
+  if (display) return display
+  // Fall back to the last path segment of the verb IRI, e.g. …/verbs/completed.
+  if (typeof record.id === 'string') {
+    const tail = record.id.split('/').filter(Boolean).pop()
+    if (tail) return tail
+  }
+  return 'completed'
+}
+
+/** A readable activity label from an xAPI object (`definition.name` → id tail). */
+function objectLabel(object: unknown): string {
+  const record = asRecord(object)
+  const definition = asRecord(record.definition)
+  const name = pickLangMap(definition.name)
+  if (name) return name
+  if (typeof record.id === 'string') {
+    const tail = record.id.split('/').filter(Boolean).pop()
+    if (tail) return tail
+    return record.id
+  }
+  return 'Activity'
+}
+
+/** A readable actor name from an xAPI actor (`name`, else account/mbox). */
+function actorName(actor: unknown): string | undefined {
+  const record = asRecord(actor)
+  if (typeof record.name === 'string' && record.name.trim()) return record.name
+  const account = asRecord(record.account)
+  if (typeof account.name === 'string' && account.name.trim()) return account.name
+  if (typeof record.mbox === 'string' && record.mbox.trim()) {
+    return record.mbox.replace(/^mailto:/, '')
+  }
+  return undefined
+}
+
+/**
+ * A tenant enrollment joined to its worker (profile) and course. RLS scopes
+ * every side to the caller's own tenant, so this is exactly the tenant's
+ * enrollment set — no tenant filter is sent. The embedded relations are the
+ * shape PostgREST returns for the `.select('*, profiles(...), courses(...)')`.
+ */
+type EnrollmentReportRow = EnrollmentRow & {
+  profiles: { full_name: string | null; email: string | null } | null
+  courses: { title: string | null; status: string | null } | null
 }
 
 // ===========================================================================
@@ -831,6 +973,201 @@ export const consoleApi = {
       }
     })
     return { enrollments }
+  },
+
+  // -------------------------------------------------------------------------
+  // Completion / compliance reporting (READ-ONLY) — the payoff of the learning
+  // loop. A tenant-admin sees who has completed what.
+  //
+  // Two RLS-scoped SELECTs (enrollments joined to worker+course, and recent
+  // completion_statements joined to the acting worker) feed rollups computed in
+  // TypeScript. RLS constrains every row to the caller's OWN tenant via
+  // `current_tenant_id()`, so NO client tenant filter is sent for authorization
+  // — adding one would be redundant at best and a security smell. Empty data
+  // yields zeroed summaries and empty lists, never a crash.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Compute the tenant's completion/compliance report from RLS-scoped reads:
+   * a summary, per-course + per-worker rollups, and a recent-completions feed.
+   * `now` is injectable for deterministic testing; it drives the overdue check
+   * (`due_at < now` AND status ≠ completed). Never sends a tenant filter — RLS
+   * scopes the rows to the caller's own tenant.
+   */
+  async getCompletionReport(now: Date = new Date()): Promise<{ report: CompletionReport }> {
+    const nowMs = now.getTime()
+
+    // 1) Every enrollment in the caller's tenant, joined to its worker + course.
+    const { data: enrollmentData, error: enrollmentError } = await supabase
+      .from('enrollments')
+      .select('*, profiles(full_name, email), courses(title, status)')
+    if (enrollmentError) fail('Unable to load enrollment report', enrollmentError)
+
+    // 2) Recent completion statements (newest first), joined to the acting
+    //    worker's profile where the FK resolves. Limited for the activity feed.
+    const { data: statementData, error: statementError } = await supabase
+      .from('completion_statements')
+      .select('*, profiles(full_name, email)')
+      .order('occurred_at', { ascending: false })
+      .limit(25)
+    if (statementError) fail('Unable to load recent completions', statementError)
+
+    const enrollments = (enrollmentData ?? []) as unknown as EnrollmentReportRow[]
+
+    // ── Status classification (shared by summary + rollups) ─────────────────
+    // A row is 'completed' by its status; 'inProgress' when it has any progress
+    // or an in-progress status; otherwise 'notStarted' (assigned, untouched).
+    const isCompleted = (row: EnrollmentRow) => row.status === 'completed'
+    const isInProgress = (row: EnrollmentRow) =>
+      !isCompleted(row) && (row.status === 'in-progress' || row.progress > 0)
+    const isOverdue = (row: EnrollmentRow) =>
+      !isCompleted(row) && row.due_at !== null && new Date(row.due_at).getTime() < nowMs
+
+    // ── Summary ─────────────────────────────────────────────────────────────
+    let completed = 0
+    let inProgress = 0
+    let notStarted = 0
+    let overdue = 0
+    const workerIds = new Set<string>()
+    for (const row of enrollments) {
+      if (isCompleted(row)) completed += 1
+      else if (isInProgress(row)) inProgress += 1
+      else notStarted += 1
+      if (isOverdue(row)) overdue += 1
+      workerIds.add(row.user_id)
+    }
+    const totalEnrollments = enrollments.length
+    const pct = (part: number, whole: number) =>
+      whole > 0 ? Math.round((part / whole) * 100) : 0
+
+    // Distinct published courses in the tenant (RLS-scoped). Counted from the
+    // enrollment join is insufficient (a published course may have zero
+    // enrollments), so read the course headers directly.
+    const { data: courseData, error: courseError } = await supabase
+      .from('courses')
+      .select('id, status')
+    if (courseError) fail('Unable to load courses for report', courseError)
+    const publishedCourses = (courseData ?? []).filter(
+      (course) => course.status === 'published',
+    ).length
+
+    const summary: ReportSummary = {
+      totalEnrollments,
+      completed,
+      inProgress,
+      notStarted,
+      overdue,
+      distinctWorkers: workerIds.size,
+      publishedCourses,
+      completionRatePct: pct(completed, totalEnrollments),
+    }
+
+    // ── Per-course rollup ───────────────────────────────────────────────────
+    type CourseAcc = {
+      courseId: string
+      title: string
+      enrolled: number
+      completed: number
+      inProgress: number
+      notStarted: number
+      progressSum: number
+    }
+    const courseAcc = new Map<string, CourseAcc>()
+    for (const row of enrollments) {
+      const key = row.course_id
+      const acc =
+        courseAcc.get(key) ??
+        courseAcc
+          .set(key, {
+            courseId: key,
+            title: row.courses?.title ?? 'Untitled course',
+            enrolled: 0,
+            completed: 0,
+            inProgress: 0,
+            notStarted: 0,
+            progressSum: 0,
+          })
+          .get(key)!
+      acc.enrolled += 1
+      acc.progressSum += row.progress
+      if (isCompleted(row)) acc.completed += 1
+      else if (isInProgress(row)) acc.inProgress += 1
+      else acc.notStarted += 1
+    }
+    const byCourse: CourseReportRow[] = [...courseAcc.values()]
+      .map((acc) => ({
+        courseId: acc.courseId,
+        title: acc.title,
+        enrolled: acc.enrolled,
+        completed: acc.completed,
+        inProgress: acc.inProgress,
+        notStarted: acc.notStarted,
+        avgProgress: acc.enrolled > 0 ? Math.round(acc.progressSum / acc.enrolled) : 0,
+        completionRatePct: pct(acc.completed, acc.enrolled),
+      }))
+      // Most-enrolled first, then by title for a stable order.
+      .sort((a, b) => b.enrolled - a.enrolled || a.title.localeCompare(b.title))
+
+    // ── Per-worker rollup ───────────────────────────────────────────────────
+    type WorkerAcc = {
+      userId: string
+      name: string
+      email: string
+      assigned: number
+      completed: number
+      progressSum: number
+    }
+    const workerAcc = new Map<string, WorkerAcc>()
+    for (const row of enrollments) {
+      const key = row.user_id
+      const acc =
+        workerAcc.get(key) ??
+        workerAcc
+          .set(key, {
+            userId: key,
+            name: row.profiles?.full_name ?? row.profiles?.email ?? key,
+            email: row.profiles?.email ?? '',
+            assigned: 0,
+            completed: 0,
+            progressSum: 0,
+          })
+          .get(key)!
+      acc.assigned += 1
+      acc.progressSum += row.progress
+      if (isCompleted(row)) acc.completed += 1
+    }
+    const byWorker: WorkerReportRow[] = [...workerAcc.values()]
+      .map((acc) => ({
+        userId: acc.userId,
+        name: acc.name,
+        email: acc.email,
+        assigned: acc.assigned,
+        completed: acc.completed,
+        avgProgress: acc.assigned > 0 ? Math.round(acc.progressSum / acc.assigned) : 0,
+        completionRatePct: pct(acc.completed, acc.assigned),
+      }))
+      .sort((a, b) => b.completionRatePct - a.completionRatePct || a.name.localeCompare(b.name))
+
+    // ── Recent completions feed ─────────────────────────────────────────────
+    type JoinedStatement = CompletionStatementRow & {
+      profiles: { full_name: string | null; email: string | null } | null
+    }
+    const recentCompletions: RecentCompletionRow[] = (
+      (statementData ?? []) as unknown as JoinedStatement[]
+    ).map((row) => ({
+      id: row.id,
+      // Prefer the joined profile name; fall back to the xAPI actor, then id.
+      actorName:
+        row.profiles?.full_name ??
+        row.profiles?.email ??
+        actorName(row.actor) ??
+        row.user_id,
+      verb: verbLabel(row.verb),
+      objectLabel: objectLabel(row.object),
+      occurredAt: row.occurred_at,
+    }))
+
+    return { report: { summary, byCourse, byWorker, recentCompletions } }
   },
 
   // -------------------------------------------------------------------------
