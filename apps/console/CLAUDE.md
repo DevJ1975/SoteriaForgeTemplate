@@ -1,8 +1,8 @@
 # `@soteria-forge/console` — Vue admin console conventions
 
 The superadmin / course-creator control plane: Vue 3 + Vite. This app is **KEPT** through the
-AWS-era migration. Prime directive: **it must not break.** Cross-cutting changes (shared types,
-auth model, key design, data source) must land here in a way that keeps it building and coherent.
+Supabase re-platform. Prime directive: **it must not break.** Cross-cutting changes (shared types,
+auth model, data source) must land here in a way that keeps it building and coherent.
 
 Owned by the **console-web** agent. See root `../../CLAUDE.md` for the shared contract.
 
@@ -34,22 +34,24 @@ and `packages/ui` move together.
   `api-data` evolves the contract, repoint `src/services/api.ts` to match (additively where
   possible) and keep `vue-tsc` green.
 - Roles bridge: the console speaks legacy `UserRole` (`learner/manager/admin/superadmin`); the
-  edge speaks Cognito groups (`worker/supervisor/tenant-admin/super-admin`). Use `roles.ts`
-  (`GROUP_TO_USER_ROLE` / `USER_ROLE_TO_GROUP`) — never hardcode a mapping.
+  backend stores the canonical roles (`worker/supervisor/tenant-admin/super-admin`) on the
+  `profiles` row. Use `roles.ts` (`GROUP_TO_USER_ROLE` / `USER_ROLE_TO_GROUP`) — never hardcode a
+  mapping.
 
-## Tenant isolation still holds
+## Tenant isolation still holds — enforced by Postgres RLS
 
-Superadmin / cross-tenant views are expressed by choosing WHICH tenant partition a request
-targets — one tenant at a time — and every such request is still tenant-checked server-side. The
-console never assumes a super-admin bypass of the tenant match, and never sends a tenantId
-sourced from anything but the authenticated session or an explicit admin tenant selection that
-the server re-authorizes.
+Reads/writes are scoped to the caller's own tenant by `public.current_tenant_id()`; the console
+sends **no** `tenant_id` for authorization. `super-admin` is the one cross-tenant role, expressed
+by RLS policy — the console never assumes a bypass. Inserts omit `tenant_id` (the `ServerStamped<>`
+pattern) so the stamp trigger owns it; the console never sends a tenantId sourced from anything but
+the authenticated session.
 
 ## Repoint-without-breaking discipline
 
-The repo is migrating from Express/Mongo toward Amplify/AppSync. Keep `src/services/api.ts`'s
-PUBLIC shape stable when its source is repointed so views don't churn; prefer small typed adapters
-over sweeping rewrites. A green console after every change beats a clever refactor that redlines
+The console's data source is now **Supabase** (`@supabase/supabase-js`, RLS-scoped) — the legacy
+Express/Mongo and interim AWS/Amplify layers are retired. Keep `src/services/api.ts`'s PUBLIC shape
+stable when it is repointed or extended so views don't churn; prefer small typed adapters over
+sweeping rewrites. A green console after every change beats a clever refactor that redlines
 type-check.
 
 ## Local workflow

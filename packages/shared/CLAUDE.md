@@ -46,9 +46,10 @@ change to it still goes through security-reviewer.
 
 ## Roles
 
-Cognito groups (`worker/supervisor/tenant-admin/super-admin`) are the edge source of truth;
-`UserRole` (`learner/manager/admin/superadmin`) is the stored vocabulary. `GROUP_TO_USER_ROLE` /
-`USER_ROLE_TO_GROUP` are the canonical bridge. `normalizeGroups` drops unknown group strings —
+The canonical roles (`worker/supervisor/tenant-admin/super-admin`) are stored on the `profiles`
+row and are the source of truth; `UserRole` (`learner/manager/admin/superadmin`) is the legacy
+stored vocabulary. `GROUP_TO_USER_ROLE` / `USER_ROLE_TO_GROUP` are the canonical bridge.
+`normalizeGroups` drops unknown group strings —
 never trust an unrecognized group. `hasRequiredGroup`/`hasMinimumGroup` are tier checks ONLY;
 they say nothing about WHICH tenant — that is always `assertTenantMatch`'s job.
 
