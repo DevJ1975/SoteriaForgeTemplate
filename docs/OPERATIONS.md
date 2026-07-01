@@ -51,13 +51,17 @@ Then re-run `get_advisors(security)` (or dashboard → Advisors) to confirm the
 
 ## 2. Security follow-ups
 
-- **`public.rls_auto_enable()`** — investigated: it is a `SECURITY DEFINER` **event-trigger** function
-  that auto-enables RLS on newly created `public` tables (predates this rebuild). A direct RPC call
-  errors (`pg_event_trigger_ddl_commands()` only works inside a DDL event), so the risk is nil, but it
-  was granted to `PUBLIC/anon/authenticated` (advisor 0028/0029). **Migration `12` revokes that EXECUTE**
-  (the event trigger still fires — migrations run as `postgres`). Apply with `supabase db push`.
-- **Migration `12` also carries perf remediations** from the live e2e debug: RLS init-plan `(select …)`
-  wrapping (advisor 0003) and covering indexes on foreign keys (advisor 0001) — semantics unchanged.
+- **`public.rls_auto_enable()`** — investigated + resolved: it is a `SECURITY DEFINER` **event-trigger**
+  function that auto-enables RLS on newly created `public` tables (predates this rebuild). A direct RPC
+  call errors (`pg_event_trigger_ddl_commands()` only works inside a DDL event), so the risk is nil, but
+  it was granted to `PUBLIC/anon/authenticated` (advisor 0028/0029). **Migration `12` (applied) revoked
+  that EXECUTE** — advisor confirms it cleared; the event trigger still fires (migrations run as `postgres`).
+- **Migration `12` (applied) also carried perf remediations** from the live e2e debug: RLS init-plan
+  `(select …)` wrapping (advisor 0003) and covering indexes on foreign keys (advisor 0001) — semantics
+  unchanged; advisors confirm both cleared.
+- **Remaining accepted advisors** (do NOT "fix"): the `current_tenant_id` / `current_user_role` /
+  `provision_tenant` / `redeem_invitation` SECURITY-DEFINER RPC warnings are expected — they must be
+  `authenticated`-executable for RLS + the invite/provision flows (see `SECURITY_REVIEW.md`).
 - Re-run `get_advisors(security)` (or dashboard → Advisors) after the toggles above; the
   `auth_leaked_password_protection` warning should clear once leaked-password protection is on.
 - The `current_tenant_id` / `current_user_role` / `provision_tenant` / `redeem_invitation` advisor
