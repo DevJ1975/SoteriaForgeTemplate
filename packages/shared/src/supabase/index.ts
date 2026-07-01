@@ -36,6 +36,7 @@ export type LessonRow = Tables<'lessons'>
 export type EnrollmentRow = Tables<'enrollments'>
 export type CompletionStatementRow = Tables<'completion_statements'>
 export type VideoAssetRow = Tables<'video_assets'>
+export type InvitationRow = Tables<'invitations'>
 
 // ── Insert aliases (the shape an INSERT accepts; tenant_id/user_id are
 //    server-stamped for authenticated end-users, so callers pass their columns) ──
@@ -47,6 +48,7 @@ export type LessonInsert = TablesInsert<'lessons'>
 export type EnrollmentInsert = TablesInsert<'enrollments'>
 export type CompletionStatementInsert = TablesInsert<'completion_statements'>
 export type VideoAssetInsert = TablesInsert<'video_assets'>
+export type InvitationInsert = TablesInsert<'invitations'>
 
 // ── Update aliases ──────────────────────────────────────────────────────────
 export type TenantUpdate = TablesUpdate<'tenants'>
@@ -56,4 +58,5 @@ export type ModuleUpdate = TablesUpdate<'modules'>
 export type LessonUpdate = TablesUpdate<'lessons'>
 export type EnrollmentUpdate = TablesUpdate<'enrollments'>
 export type VideoAssetUpdate = TablesUpdate<'video_assets'>
+export type InvitationUpdate = TablesUpdate<'invitations'>
 // (completion_statements is APPEND-ONLY — no update alias is exported by design.)

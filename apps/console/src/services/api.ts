@@ -25,6 +25,7 @@
 
 import type {
   AuthSessionDTO,
+  CognitoGroup,
   CourseBundleDTO,
   CourseDTO,
   CourseModuleDTO,
@@ -37,6 +38,8 @@ import { GROUP_TO_USER_ROLE, isCognitoGroup } from '@soteria-forge/shared'
 import type {
   CourseInsert,
   CourseRow,
+  InvitationInsert,
+  InvitationRow,
   LessonInsert,
   LessonRow,
   ModuleInsert,
@@ -47,6 +50,17 @@ import type {
   TenantUpdate,
 } from '@soteria-forge/shared/supabase'
 import { supabase } from './supabase'
+
+/**
+ * Roles a tenant-admin may invite. These are the STORED `profiles.role` /
+ * `invitations.role` vocabulary (Cognito-group names), NOT the legacy console
+ * `UserRole` — the invitation row persists the group name a new profile will be
+ * created with. `super-admin` is deliberately excluded (Soteria Forge staff are
+ * not provisioned by a tenant-admin self-service invite).
+ */
+export type InvitableRole = Extract<CognitoGroup, 'worker' | 'supervisor' | 'tenant-admin'>
+
+export const INVITABLE_ROLES: readonly InvitableRole[] = ['worker', 'supervisor', 'tenant-admin']
 
 /**
  * The generated Insert types mark `tenant_id` as required, but for authenticated
@@ -190,7 +204,13 @@ function profileRoleToUserRole(role: string): UserRole {
 // caller — never from client input.
 // ===========================================================================
 
-async function loadSessionContext(): Promise<{ user: UserDTO; tenant: TenantDTO }> {
+/**
+ * Load the signed-in caller's OWN profile row. RLS scopes `profiles` to the
+ * caller, so this is always the authenticated user's row — the tenant/role on it
+ * come from the verified session, never from client input. Used both to build an
+ * AuthSessionDTO and to source the caller's own `tenant_id` for invite inserts.
+ */
+async function loadCallerProfile(): Promise<ProfileRow> {
   const { data: authData, error: authError } = await supabase.auth.getUser()
   if (authError || !authData.user) fail('Not authenticated', authError)
 
@@ -200,6 +220,12 @@ async function loadSessionContext(): Promise<{ user: UserDTO; tenant: TenantDTO 
     .eq('id', authData.user.id)
     .single()
   if (profileError || !profile) fail('Unable to load profile', profileError)
+
+  return profile
+}
+
+async function loadSessionContext(): Promise<{ user: UserDTO; tenant: TenantDTO }> {
+  const profile = await loadCallerProfile()
 
   const { data: tenant, error: tenantError } = await supabase
     .from('tenants')
@@ -419,6 +445,62 @@ export const consoleApi = {
         ),
       ),
     }
+  },
+
+  // -------------------------------------------------------------------------
+  // Invitations — a tenant-admin invites a user into THEIR OWN tenant.
+  //
+  // RLS only permits tenant-admin / super-admin to INSERT into `invitations`,
+  // and a BEFORE INSERT trigger stamps `tenant_id` + `invited_by` from the
+  // verified session — so a client can NEVER seed another tenant's invite. The
+  // generated Insert type marks `tenant_id` required (it can't see the trigger),
+  // so we pass the caller's OWN tenant_id (read from their own RLS-scoped
+  // profile); the trigger re-stamps it to the identical value. This is not a
+  // client-chosen cross-tenant id — it is the caller's session tenant, and the
+  // server re-authorizes it. A non-admin caller is rejected by RLS and the error
+  // surfaces to the UI.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create an invitation into the caller's own tenant and return the generated
+   * `token` (a shareable claim key) alongside the full row. `role` is the stored
+   * group vocabulary the invited profile will be created with.
+   */
+  async inviteUser(
+    email: string,
+    role: InvitableRole,
+  ): Promise<{ token: string; invite: InvitationRow }> {
+    // Source tenant_id from the caller's OWN profile (RLS-scoped) purely to
+    // satisfy the generated Insert type; the trigger re-stamps it identically.
+    const profile = await loadCallerProfile()
+
+    const insert: InvitationInsert = {
+      email: email.trim().toLowerCase(),
+      role,
+      tenant_id: profile.tenant_id,
+    }
+
+    const { data, error } = await supabase
+      .from('invitations')
+      .insert(insert)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to create invitation', error)
+
+    return { token: data.token, invite: data }
+  },
+
+  /**
+   * Pending (and past) invitations for the caller's tenant, newest first. RLS
+   * scopes the result to the caller's own tenant — no tenant filter is sent.
+   */
+  async listInvitations(): Promise<{ invitations: InvitationRow[] }> {
+    const { data, error } = await supabase
+      .from('invitations')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (error) fail('Unable to list invitations', error)
+    return { invitations: data ?? [] }
   },
 
   // -------------------------------------------------------------------------

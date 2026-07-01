@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { BookOpenCheck, Building2, CopyPlus, FileStack, LibraryBig, RadioTower, ShieldCheck, WandSparkles } from '@lucide/vue'
-import { normalizeTenantSlug, type CourseDTO, type ProductPackageDTO, type TenantDTO } from '@soteria-forge/shared'
+import { BookOpenCheck, Building2, CopyPlus, FileStack, LibraryBig, MailPlus, RadioTower, ShieldCheck, UserPlus, WandSparkles } from '@lucide/vue'
+import { normalizeTenantSlug, type CourseDTO, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
-import { consoleApi } from './services/api'
+import { consoleApi, INVITABLE_ROLES, type InvitableRole } from './services/api'
+import type { InvitationRow } from '@soteria-forge/shared/supabase'
 
 const tenantName = ref('Acme Industrial Services')
 const tenantSlug = computed(() => normalizeTenantSlug(tenantName.value))
@@ -20,6 +21,30 @@ const selectedTenantSlug = ref('demo')
 const selectedTenantId = computed(() => tenants.value.find((tenant) => tenant.slug === selectedTenantSlug.value)?.id ?? '')
 const dedicatedSubdomain = ref('')
 const savedCourse = ref<CourseDTO | null>(null)
+
+// ── Invitations ──────────────────────────────────────────────────────────────
+// The signed-in user's own role (from their session profile) gates who sees the
+// invite panel. RLS is the real gate server-side; this is a UI affordance only.
+const currentUser = ref<UserDTO | null>(null)
+// Legacy UserRole vocabulary: 'admin' === tenant-admin, 'superadmin' === super-admin.
+const ADMIN_ROLES: readonly UserRole[] = ['admin', 'superadmin']
+const canInvite = computed(() =>
+  (currentUser.value?.roles ?? []).some((role) => ADMIN_ROLES.includes(role)),
+)
+
+// Friendly labels for the stored group-vocabulary invite roles.
+const INVITE_ROLE_LABELS: Record<InvitableRole, string> = {
+  worker: 'Worker (learner)',
+  supervisor: 'Supervisor (manager)',
+  'tenant-admin': 'Tenant admin',
+}
+const inviteRoleOptions = INVITABLE_ROLES.map((role) => ({ value: role, label: INVITE_ROLE_LABELS[role] }))
+
+const inviteEmail = ref('')
+const inviteRole = ref<InvitableRole>('worker')
+const inviteError = ref('')
+const invitations = ref<InvitationRow[]>([])
+
 const packageDraft = ref({
   name: 'Starter',
   slug: 'starter',
@@ -98,10 +123,12 @@ const coursePreview = computed<CourseDTO>(() => ({
 
 async function login() {
   status.value = 'Signing in'
-  await consoleApi.login(email.value, password.value, tenantLoginSlug.value)
+  const session = await consoleApi.login(email.value, password.value, tenantLoginSlug.value)
+  currentUser.value = session.user
   isLoggedIn.value = true
-  status.value = 'Signed in as superadmin'
+  status.value = `Signed in as ${session.user.email}`
   await loadTenants()
+  await loadInvitations()
 }
 
 async function loadTenants() {
@@ -109,6 +136,52 @@ async function loadTenants() {
   tenants.value = response.tenants
   packages.value = packageResponse.packages
   selectedTenantSlug.value = tenants.value[0]?.slug ?? 'demo'
+}
+
+async function loadInvitations() {
+  // Only admins can list invitations under RLS; skip the call for others so a
+  // learner/manager session doesn't surface a benign RLS-empty result as noise.
+  if (!canInvite.value) {
+    invitations.value = []
+    return
+  }
+  try {
+    const response = await consoleApi.listInvitations()
+    invitations.value = response.invitations
+  } catch (error) {
+    inviteError.value = error instanceof Error ? error.message : 'Unable to load invitations'
+  }
+}
+
+async function sendInvite() {
+  inviteError.value = ''
+  const address = inviteEmail.value.trim()
+  if (!address) {
+    inviteError.value = 'Enter an email address to invite.'
+    return
+  }
+  status.value = `Inviting ${address}`
+  try {
+    const { invite } = await consoleApi.inviteUser(address, inviteRole.value)
+    // Prepend the new invite (RLS already scoped it to our tenant).
+    invitations.value = [invite, ...invitations.value.filter((row) => row.id !== invite.id)]
+    inviteEmail.value = ''
+    status.value = `Invited ${invite.email} as ${inviteRole.value}`
+  } catch (error) {
+    // Surface RLS rejection (non-admin) and any other failure gracefully.
+    inviteError.value = error instanceof Error ? error.message : 'Unable to send invitation'
+    status.value = 'Invitation failed'
+  }
+}
+
+async function copyInviteToken(token: string) {
+  try {
+    await navigator.clipboard?.writeText(token)
+    status.value = 'Invite token copied to clipboard'
+  } catch {
+    // Clipboard may be unavailable (insecure context); the token stays visible.
+    status.value = 'Copy unavailable — select the token to copy it manually'
+  }
 }
 
 async function provisionTenant() {
@@ -176,9 +249,11 @@ onMounted(async () => {
   try {
     const session = await consoleApi.currentSession()
     if (session) {
+      currentUser.value = session.user
       isLoggedIn.value = true
       status.value = `Signed in as ${session.user.email}`
       await loadTenants()
+      await loadInvitations()
     }
   } catch (error) {
     status.value = error instanceof Error ? error.message : 'Unable to restore session'
@@ -197,6 +272,7 @@ onMounted(async () => {
         <button type="button"><LibraryBig :size="18" /> Global Library</button>
         <button type="button"><ShieldCheck :size="18" /> Packages</button>
         <button type="button"><WandSparkles :size="18" /> Course Creator</button>
+        <button v-if="canInvite" type="button"><UserPlus :size="18" /> Invite Users</button>
         <button type="button"><RadioTower :size="18" /> Sync Health</button>
       </nav>
     </aside>
@@ -346,6 +422,53 @@ onMounted(async () => {
             <ShieldCheck :size="16" aria-hidden="true" />
             <span>{{ productPackage.name }}</span>
             <small>{{ productPackage.seatLimit }} seats · {{ productPackage.priceLabel }}</small>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="isLoggedIn && canInvite" class="invite-panel panel">
+        <h2>Invite user to your tenant</h2>
+        <p>
+          The invitation is stamped to your tenant server-side (RLS). Share the returned token
+          with the invitee to let them claim their account.
+        </p>
+        <div class="invite-form">
+          <label>
+            Email
+            <input v-model="inviteEmail" type="email" placeholder="new.user@company.com" autocomplete="off" />
+          </label>
+          <label>
+            Role
+            <select v-model="inviteRole">
+              <option v-for="option in inviteRoleOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <button class="primary-action" type="button" @click="sendInvite">
+            <MailPlus :size="18" aria-hidden="true" />
+            Invite
+          </button>
+        </div>
+        <p v-if="inviteError" class="invite-error" role="alert">{{ inviteError }}</p>
+
+        <h3 class="invite-subhead">Pending invitations</h3>
+        <p v-if="!invitations.length" class="invite-empty">No invitations yet.</p>
+        <div v-else class="module-list">
+          <div v-for="invite in invitations" :key="invite.id" class="invite-row">
+            <UserPlus :size="16" aria-hidden="true" />
+            <div class="invite-meta">
+              <span>{{ invite.email }}</span>
+              <small>{{ invite.role }} · {{ invite.status }}</small>
+            </div>
+            <button
+              class="invite-token"
+              type="button"
+              :title="`Copy token: ${invite.token}`"
+              @click="copyInviteToken(invite.token)"
+            >
+              <code>{{ invite.token }}</code>
+            </button>
           </div>
         </div>
       </section>

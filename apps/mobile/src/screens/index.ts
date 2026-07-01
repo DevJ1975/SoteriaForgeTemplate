@@ -7,3 +7,4 @@ export { SignInScreen } from './SignInScreen';
 export { HomeScreen } from './HomeScreen';
 export { CourseListScreen } from './CourseListScreen';
 export { CourseDetailScreen } from './CourseDetailScreen';
+export { JoinTenantScreen, extractInviteToken } from './JoinTenantScreen';
