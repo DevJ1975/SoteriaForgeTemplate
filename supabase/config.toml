@@ -27,4 +27,10 @@ enable_anonymous_sign_ins = false
 
 [auth.email]
 enable_signup = true
-enable_confirmations = false
+# SECURITY (review Finding 3): require email confirmation so a signup's `email`
+# claim is actually VERIFIED. redeem_invitation() matches the invite's email against
+# the session email; without confirmation that email is attacker-chosen, making the
+# invite token the sole gate. Confirmation makes the email a real second factor.
+# NOTE: this file drives local `supabase start`; the LIVE project's setting must be
+# toggled to match in the Supabase dashboard (Auth → Providers → Email → Confirm email).
+enable_confirmations = true
