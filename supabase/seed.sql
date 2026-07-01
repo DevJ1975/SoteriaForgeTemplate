@@ -6,11 +6,11 @@
 -- Fixed UUIDs (not gen_random_uuid()) so a fresh `supabase db reset` reproduces the
 -- exact ids the live project uses — deterministic across environments.
 --
--- NOTE: no profiles/enrollments/statements/videos are seeded. profiles are 1:1 with
--- auth.users, so real users must be created through Supabase Auth first; those (and
--- the rows that reference them) are provisioned by the app / an admin, not this seed.
--- Seed rows are inserted with auth.uid() = null, so the BEFORE INSERT stamping
--- triggers trust the explicit tenant_id here (see migration 05).
+-- Also seeds three DEMO auth users (+ their profiles + one enrollment) so you can
+-- sign in and see tenant-scoped data immediately — see the block at the bottom. No
+-- modules/lessons/statements/videos are seeded. Seed rows are inserted with
+-- auth.uid() = null, so the BEFORE INSERT stamping triggers trust the explicit
+-- tenant_id here (see migration 05).
 
 -- ── Tenants ─────────────────────────────────────────────────────────────────
 insert into public.tenants (id, slug, name, status, mode, branding, settings) values
@@ -51,3 +51,61 @@ on conflict (id) do update set
   duration_minutes      = excluded.duration_minutes,
   tags                  = excluded.tags,
   field_readiness_score = excluded.field_readiness_score;
+
+-- ── Demo auth users + profiles (+ one enrollment) ───────────────────────────
+-- Password for ALL demo accounts: SoteriaForge!2026
+-- Idempotent by email. Seeds auth.users directly (the standard Supabase seed
+-- pattern): a confirmed email/password user + its email identity, then the
+-- app-level profile carrying tenant_id + role. On a fresh `db reset` these are
+-- recreated with new ids (profiles.id must equal auth.users.id).
+--   admin@atl.test    tenant-admin  ATL Curb-to-Cabin
+--   worker@atl.test   worker        ATL Curb-to-Cabin  (enrolled in Confined Space Entry)
+--   worker@demo.test  worker        Soteria Forge Demo (different tenant — proves isolation)
+do $$
+declare
+  atl uuid := (select id from public.tenants where slug = 'atl-curb-to-cabin');
+  dmo uuid := (select id from public.tenants where slug = 'demo');
+  demo_course uuid := (select id from public.courses where slug = 'confined-space-entry');
+  u   record;
+  uid uuid;
+begin
+  for u in
+    select * from (values
+      ('admin@atl.test',   'ATL Tenant Admin', 'tenant-admin', atl),
+      ('worker@atl.test',  'ATL Worker',       'worker',       atl),
+      ('worker@demo.test', 'Demo Worker',      'worker',       dmo)
+    ) as t(email, full_name, role, tenant_id)
+  loop
+    if not exists (select 1 from auth.users where email = u.email) then
+      uid := gen_random_uuid();
+      insert into auth.users (
+        instance_id, id, aud, role, email, encrypted_password,
+        email_confirmed_at, created_at, updated_at,
+        raw_app_meta_data, raw_user_meta_data, is_anonymous,
+        confirmation_token, recovery_token, email_change_token_new, email_change
+      ) values (
+        '00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated',
+        u.email, crypt('SoteriaForge!2026', gen_salt('bf')),
+        now(), now(), now(),
+        '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, false,
+        '', '', '', ''
+      );
+      insert into auth.identities (
+        id, user_id, provider_id, identity_data, provider, created_at, updated_at, last_sign_in_at
+      ) values (
+        gen_random_uuid(), uid, uid::text,
+        jsonb_build_object('sub', uid::text, 'email', u.email, 'email_verified', true),
+        'email', now(), now(), now()
+      );
+      insert into public.profiles (id, tenant_id, email, full_name, role)
+      values (uid, u.tenant_id, u.email, u.full_name, u.role);
+    end if;
+  end loop;
+
+  -- Enroll the ATL worker in the demo course (idempotent).
+  insert into public.enrollments (tenant_id, user_id, course_id, status, progress)
+  select atl, p.id, demo_course, 'assigned', 0
+  from public.profiles p
+  where p.email = 'worker@atl.test' and demo_course is not null
+  on conflict (user_id, course_id) do nothing;
+end $$;

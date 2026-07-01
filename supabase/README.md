@@ -20,7 +20,22 @@ Backend pivot: **AWS/Amplify → Supabase.** Tenant isolation (the #1 rule) is n
 | **ref** | `bgnadngztngkwzneknhd` |
 | **url** | `https://bgnadngztngkwzneknhd.supabase.co` |
 | **applied migrations** | `01_core_schema`, `02_rls_policies`, `03_storage`, `04_harden_function_grants`, `05_stamp_only_for_authenticated` |
-| **seeded** | tenants `atl-curb-to-cabin`, `demo`; one published course (`Confined Space Entry`) |
+| **seeded** | tenants `atl-curb-to-cabin`, `demo`; a published course (`Confined Space Entry`); 3 demo users (below) |
+
+## Demo accounts (seeded — password `SoteriaForge!2026`)
+
+Sign in with any of these (mobile or console) to see RLS tenant-scoping end-to-end:
+
+| Email | Role | Tenant | Sees |
+|---|---|---|---|
+| `admin@atl.test` | tenant-admin | ATL Curb-to-Cabin | ATL data; may author courses |
+| `worker@atl.test` | worker | ATL Curb-to-Cabin | the `Confined Space Entry` course (enrolled) |
+| `worker@demo.test` | worker | Soteria Forge Demo | **none of ATL's data** — proves cross-tenant isolation |
+
+**Verified live against the RLS policies:** acting as `worker@atl.test` returns exactly
+one course + one enrollment; acting as `worker@demo.test` returns **0 courses and only
+its own profile** — the ATL↔demo tenant boundary holds under the caller's own JWT.
+(Demo credentials are for this dev project only — never reuse this password in production.)
 
 ## Schema at a glance
 
