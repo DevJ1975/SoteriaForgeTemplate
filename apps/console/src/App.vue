@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { BookOpenCheck, Building2, CopyPlus, FileStack, LibraryBig, MailPlus, RadioTower, ShieldCheck, UserPlus, WandSparkles } from '@lucide/vue'
+import { BookOpenCheck, Building2, CopyPlus, FileStack, KeyRound, LibraryBig, MailPlus, RadioTower, Rocket, ShieldCheck, UserPlus, WandSparkles } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
 import { consoleApi, INVITABLE_ROLES, type InvitableRole } from './services/api'
@@ -32,6 +32,15 @@ const canInvite = computed(() =>
   (currentUser.value?.roles ?? []).some((role) => ADMIN_ROLES.includes(role)),
 )
 
+// Provisioning a brand-new tenant is a SUPER-ADMIN-ONLY action (the one
+// legitimately cross-tenant operation). Unlike `canInvite`, this deliberately
+// requires the legacy `superadmin` role specifically — a plain tenant-admin
+// ('admin') must NOT see or reach it. RLS/the RPC is the real gate server-side;
+// this computed only decides whether the affordance is shown.
+const canProvisionTenant = computed(() =>
+  (currentUser.value?.roles ?? []).includes('superadmin'),
+)
+
 // Friendly labels for the stored group-vocabulary invite roles.
 const INVITE_ROLE_LABELS: Record<InvitableRole, string> = {
   worker: 'Worker (learner)',
@@ -44,6 +53,33 @@ const inviteEmail = ref('')
 const inviteRole = ref<InvitableRole>('worker')
 const inviteError = ref('')
 const invitations = ref<InvitationRow[]>([])
+
+// ── Provision Tenant (super-admin only) ───────────────────────────────────────
+// Stand up a new tenant + its first-admin invite via the `provision_tenant` RPC.
+type ProvisionMode = 'dedicated' | 'marketplace'
+const PROVISION_MODE_OPTIONS: readonly { value: ProvisionMode; label: string }[] = [
+  { value: 'dedicated', label: 'Dedicated' },
+  { value: 'marketplace', label: 'Marketplace' },
+]
+const provisionName = ref('')
+// Auto-suggest a URL-safe slug from the name (a nice touch; still editable). We
+// only override the slug while the operator has not hand-edited it.
+const provisionSlugTouched = ref(false)
+const provisionSlug = ref('')
+const suggestedProvisionSlug = computed(() => normalizeTenantSlug(provisionName.value))
+const provisionAdminEmail = ref('')
+const provisionMode = ref<ProvisionMode>('dedicated')
+const provisionError = ref('')
+const provisionResult = ref<{ tenant_id: string; tenant_slug: string; invite_token: string } | null>(null)
+
+function onProvisionNameInput() {
+  // Keep the slug in step with the name until the operator edits the slug field.
+  if (!provisionSlugTouched.value) provisionSlug.value = suggestedProvisionSlug.value
+}
+
+function onProvisionSlugInput() {
+  provisionSlugTouched.value = true
+}
 
 const packageDraft = ref({
   name: 'Starter',
@@ -184,6 +220,31 @@ async function copyInviteToken(token: string) {
   }
 }
 
+async function submitProvisionTenant() {
+  provisionError.value = ''
+  const name = provisionName.value.trim()
+  const slug = provisionSlug.value.trim()
+  const adminEmail = provisionAdminEmail.value.trim()
+  if (!name || !slug || !adminEmail) {
+    provisionError.value = 'Enter a tenant name, slug, and first-admin email.'
+    return
+  }
+  status.value = `Provisioning ${name}`
+  try {
+    const result = await consoleApi.provisionTenant(name, slug, adminEmail, provisionMode.value)
+    provisionResult.value = result
+    status.value = `Provisioned ${result.tenant_slug}`
+    // Reflect the new tenant in the list a super-admin sees (RLS returns all).
+    await loadTenants()
+    selectedTenantSlug.value = result.tenant_slug
+  } catch (error) {
+    // Surface RLS/role rejection (non-super-admin) or a taken slug as the server
+    // message instead of crashing the console.
+    provisionError.value = error instanceof Error ? error.message : 'Unable to provision tenant'
+    status.value = 'Provisioning failed'
+  }
+}
+
 async function provisionTenant() {
   status.value = 'Provisioning tenant'
   const response = await consoleApi.createTenant({
@@ -272,6 +333,7 @@ onMounted(async () => {
         <button type="button"><LibraryBig :size="18" /> Global Library</button>
         <button type="button"><ShieldCheck :size="18" /> Packages</button>
         <button type="button"><WandSparkles :size="18" /> Course Creator</button>
+        <button v-if="canProvisionTenant" type="button"><Rocket :size="18" /> Provision Tenant</button>
         <button v-if="canInvite" type="button"><UserPlus :size="18" /> Invite Users</button>
         <button type="button"><RadioTower :size="18" /> Sync Health</button>
       </nav>
@@ -423,6 +485,83 @@ onMounted(async () => {
             <span>{{ productPackage.name }}</span>
             <small>{{ productPackage.seatLimit }} seats · {{ productPackage.priceLabel }}</small>
           </div>
+        </div>
+      </section>
+
+      <section v-if="isLoggedIn && canProvisionTenant" class="provision-panel panel">
+        <h2>Provision a new tenant</h2>
+        <p>
+          Super-admin only. This stands up a brand-new tenant and its first-admin invitation in one
+          server-side step. Share the returned token with the first admin: they sign up with the
+          email below, then redeem the token to claim the tenant-admin account.
+        </p>
+        <div class="provision-form">
+          <label>
+            Tenant name
+            <input
+              v-model="provisionName"
+              type="text"
+              placeholder="Acme Industrial Services"
+              autocomplete="off"
+              @input="onProvisionNameInput"
+            />
+          </label>
+          <label>
+            Slug
+            <input
+              v-model="provisionSlug"
+              type="text"
+              placeholder="acme-industrial"
+              autocomplete="off"
+              @input="onProvisionSlugInput"
+            />
+          </label>
+          <label>
+            First-admin email
+            <input
+              v-model="provisionAdminEmail"
+              type="email"
+              placeholder="admin@acme.com"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            Mode
+            <select v-model="provisionMode">
+              <option v-for="option in PROVISION_MODE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <button class="primary-action" type="button" @click="submitProvisionTenant">
+            <Rocket :size="18" aria-hidden="true" />
+            Provision Tenant
+          </button>
+        </div>
+        <p v-if="provisionError" class="provision-error" role="alert">{{ provisionError }}</p>
+
+        <div v-if="provisionResult" class="provision-result">
+          <h3 class="provision-subhead">Tenant provisioned</h3>
+          <div class="provision-summary">
+            <Building2 :size="16" aria-hidden="true" />
+            <div class="provision-meta">
+              <span>{{ provisionResult.tenant_slug }}</span>
+              <small>{{ provisionResult.tenant_id }}</small>
+            </div>
+          </div>
+          <p class="provision-hint">
+            The first admin signs up with <strong>{{ provisionAdminEmail }}</strong>, then redeems
+            this invite token to claim the tenant-admin account:
+          </p>
+          <button
+            class="invite-token"
+            type="button"
+            :title="`Copy token: ${provisionResult.invite_token}`"
+            @click="copyInviteToken(provisionResult.invite_token)"
+          >
+            <KeyRound :size="14" aria-hidden="true" />
+            <code>{{ provisionResult.invite_token }}</code>
+          </button>
         </div>
       </section>
 

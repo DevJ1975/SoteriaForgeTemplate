@@ -504,6 +504,54 @@ export const consoleApi = {
   },
 
   // -------------------------------------------------------------------------
+  // Tenant provisioning — a SUPER-ADMIN stands up a brand-new tenant + its
+  // first admin invite in one server-side transaction.
+  //
+  // This is the one legitimately cross-tenant action, so it is NOT an ordinary
+  // table INSERT (which RLS would tenant-stamp to the caller's own tenant).
+  // Instead it calls the `provision_tenant(...)` Postgres function, which
+  // creates the new tenant row and a first-admin invitation atomically and
+  // returns `{ tenant_id, tenant_slug, invite_token }`. Authorization lives in
+  // the function/RLS: only a super-admin may run it; any other caller (or a
+  // taken slug) is rejected and the Postgres error surfaces here as a thrown
+  // Error. The client sends ONLY the operator-entered name/slug/admin-email/mode
+  // — never a client-chosen tenant_id for authorization.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Provision a new tenant and its first-admin invitation via the
+   * `provision_tenant` RPC. Returns the new tenant's id + slug and the invite
+   * `token` the first admin redeems (after signing up with `adminEmail`).
+   * `mode` defaults to 'dedicated'. Throws on error — a non-super-admin caller
+   * or a taken slug is surfaced as the server message.
+   */
+  async provisionTenant(
+    name: string,
+    slug: string,
+    adminEmail: string,
+    mode?: string,
+  ): Promise<{ tenant_id: string; tenant_slug: string; invite_token: string }> {
+    const { data, error } = await supabase.rpc('provision_tenant', {
+      p_name: name,
+      p_slug: slug,
+      p_admin_email: adminEmail,
+      p_mode: mode ?? 'dedicated',
+    })
+    if (error) fail('Unable to provision tenant', error)
+
+    // The RPC returns a table (array of rows); the provisioned tenant is the
+    // first (and only) row. Guard the empty case so callers never read undefined.
+    const row = data?.[0]
+    if (!row) fail('Unable to provision tenant', { message: 'no tenant returned' })
+
+    return {
+      tenant_id: row.tenant_id,
+      tenant_slug: row.tenant_slug,
+      invite_token: row.invite_token,
+    }
+  },
+
+  // -------------------------------------------------------------------------
   // Commerce surface (packages / bundles / billing).
   //
   // These have NO table in the Supabase schema (the pivot narrowed scope to the

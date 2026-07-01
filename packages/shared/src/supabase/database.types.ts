@@ -499,6 +499,19 @@ export type Database = {
     Functions: {
       current_tenant_id: { Args: never; Returns: string }
       current_user_role: { Args: never; Returns: string }
+      provision_tenant: {
+        Args: {
+          p_admin_email: string
+          p_mode?: string
+          p_name: string
+          p_slug: string
+        }
+        Returns: {
+          invite_token: string
+          tenant_id: string
+          tenant_slug: string
+        }[]
+      }
       redeem_invitation: {
         Args: { invite_token: string }
         Returns: {
