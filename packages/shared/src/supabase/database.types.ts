@@ -14,6 +14,64 @@ export type Database = {
   }
   public: {
     Tables: {
+      certificates: {
+        Row: {
+          certificate_number: string
+          course_id: string
+          expires_at: string | null
+          id: string
+          issued_at: string
+          revoked_at: string | null
+          score: number | null
+          tenant_id: string
+          user_id: string
+        }
+        Insert: {
+          certificate_number: string
+          course_id: string
+          expires_at?: string | null
+          id?: string
+          issued_at?: string
+          revoked_at?: string | null
+          score?: number | null
+          tenant_id: string
+          user_id: string
+        }
+        Update: {
+          certificate_number?: string
+          course_id?: string
+          expires_at?: string | null
+          id?: string
+          issued_at?: string
+          revoked_at?: string | null
+          score?: number | null
+          tenant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "certificates_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "certificates_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "certificates_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       completion_statements: {
         Row: {
           actor: Json

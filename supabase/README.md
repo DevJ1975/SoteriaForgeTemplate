@@ -12,6 +12,7 @@ Backend pivot: **AWS/Amplify → Supabase.** Tenant isolation (the #1 rule) is n
 | `config.toml` | Supabase CLI config (`project_id`, db major version, storage, auth). |
 | `migrations/` | One `.sql` per applied migration, **exact copies** of the live `schema_migrations`. |
 | `seed.sql` | Idempotent tenant + demo-course seed (matches what the live project was seeded with). |
+| `functions/` | Supabase Edge Functions (Deno). `stream-signed-url` mints tenant-checked Cloudflare Stream signed playback URLs. |
 
 ## The live project
 
@@ -42,9 +43,30 @@ its own profile** — the ATL↔demo tenant boundary holds under the caller's ow
 
 `public.tenants`, `profiles` (1:1 with `auth.users`; holds `tenant_id` + `role`), `courses`,
 `modules`, `lessons`, `enrollments`, `completion_statements` (xAPI, **append-only**, PK is the
-client-generated UUID = idempotency key), `video_assets` (**metadata only** — never bytes); `invitations` (pending tenant memberships,
-redeemed via `public.redeem_invitation(token)`).
+client-generated UUID = idempotency key), `video_assets` (**metadata only** — never bytes);
+`invitations` (pending tenant memberships, redeemed via `public.redeem_invitation(token)`);
+`certificates` (course-completion certificates — **trigger-issued and immutable to clients**, see below).
 Roles: `worker | supervisor | tenant-admin | super-admin`.
+
+### Certificates (migration `11`)
+
+`certificates` are **system-issued, never client-written**. A `SECURITY DEFINER` trigger
+(`issue_certificate`) fires when an enrollment first reaches `status = 'completed'` and inserts exactly
+**one certificate per `(user_id, course_id)`** (`on conflict do nothing` — idempotent). RLS grants
+`select` only (owner / same-tenant `supervisor`/`tenant-admin` / `super-admin`, all tenant-scoped); there
+is **no INSERT/UPDATE/DELETE policy**, so clients can neither forge nor mutate a certificate. `revoked_at`
+/ `expires_at` are reserved for future privileged server logic.
+
+### Video pipeline (`functions/stream-signed-url` + `video_assets`)
+
+Video bytes live on **Cloudflare Stream** (ADR-0005 / ADR-0008); `video_assets` stores metadata only
+(`provider`, `playback_id`, `download_url`, `course_id`, `lesson_id`, `tenant_id`), RLS-scoped to the
+tenant. The `supabase/functions/stream-signed-url` edge function reads the requested `video_assets` row
+**through the caller's JWT (RLS scopes it to the caller's tenant — never the service-role key)** and mints
+a short-lived Cloudflare Stream **signed** playback URL; it returns **501** until the `CF_*` secrets are
+configured (safe to deploy first). Offline playback uses the cached MP4 `download_url`. See
+[`functions/stream-signed-url/README.md`](functions/stream-signed-url/README.md) and
+[`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) → "Cloudflare Stream (video)".
 
 ## Tenant isolation — enforced by RLS (read `migrations/…02_rls_policies.sql`)
 

@@ -23,6 +23,7 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
 | [0005](./0005-video-cloudflare-stream.md) | Cloudflare Stream for video; DB stores metadata only | Accepted |
 | [0006](./0006-adopt-soteria-forge-ui-kit.md) | Adopt the Soteria Forge UI kit as `packages/ui` (mobile) | Accepted |
 | [0007](./0007-supabase-backend.md) | Supabase (Postgres + RLS + Auth + Storage) replaces AWS/Amplify | Accepted |
+| [0008](./0008-certificates-and-video.md) | Auto-issued immutable certificates; Cloudflare Stream signed playback | Accepted |
 
 ## How these relate
 
@@ -44,6 +45,12 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
 - **0005** keeps video bytes out of the database entirely — Cloudflare Stream
   holds the bytes; the database holds only `video_assets` metadata. Unchanged by
   the Supabase move.
+- **0008** builds on **0005** and **0007**: certificates are auto-issued by a
+  database trigger on course completion — one per (user, course), immutable to
+  clients, RLS tenant-scoped — and video playback is authorized by RLS through the
+  `stream-signed-url` edge function (caller-JWT read, no service-role), which mints
+  a short-lived Cloudflare Stream signed URL and degrades to `501` before Cloudflare
+  is configured.
 - **0006** makes `packages/ui` a real cross-platform RN component kit for
   `apps/mobile`. Note the **open brand divergence** it records: mobile is now
   ember/spark while `apps/console` + the root `CLAUDE.md` stay Ink/Bone/Cobalt —

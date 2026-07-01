@@ -37,6 +37,7 @@ export type EnrollmentRow = Tables<'enrollments'>
 export type CompletionStatementRow = Tables<'completion_statements'>
 export type VideoAssetRow = Tables<'video_assets'>
 export type InvitationRow = Tables<'invitations'>
+export type CertificateRow = Tables<'certificates'>
 
 // ── Insert aliases (the shape an INSERT accepts; tenant_id/user_id are
 //    server-stamped for authenticated end-users, so callers pass their columns) ──

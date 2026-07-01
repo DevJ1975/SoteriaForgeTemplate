@@ -85,9 +85,53 @@ Never edit an already-applied migration — add a new numbered one. Never run `s
 against production: it creates demo accounts (password `SoteriaForge!2026`) and a cross-tenant
 `super@soteria.test` super-admin. Those are **dev-only** artifacts.
 
-## 5. Deferred / needs external accounts
+## 5. Cloudflare Stream (video)
 
-- **Cloudflare Stream** (video) — CF account + API token; the `video_assets` metadata model is ready.
+Video bytes live on **Cloudflare Stream**, never in Postgres (ADR-0005 / ADR-0008). `public.video_assets`
+holds metadata only (`provider`, `playback_id`, `download_url`, `course_id`, `lesson_id`, `tenant_id`).
+Playback is authorized by the `supabase/functions/stream-signed-url` edge function, which reads the
+`video_assets` row **through the caller's JWT so RLS scopes it to the caller's tenant** (never the
+service-role key) and then mints a short-lived Cloudflare Stream signed URL. Until the secrets below are
+set the function returns **501 `{ "error": "video provider not configured" }`**, so it is safe to deploy first.
+
+### One-time Cloudflare setup (dashboard)
+
+1. Create a **Cloudflare account** and add a **Stream** subscription (dash.cloudflare.com → Stream).
+2. Note the **Account ID** (Stream → right sidebar / account home) → `CF_ACCOUNT_ID`.
+3. Note the **customer subdomain** — playback URLs are `customer-<code>.cloudflarestream.com`; the
+   `<code>` is `CF_STREAM_CUSTOMER_CODE`.
+4. Create an **API token scoped to Stream** (My Profile → API Tokens → Create Token → *Stream* template,
+   permission **Account · Stream · Edit/Read**, scoped to this account) → `CF_STREAM_API_TOKEN`.
+   **This token is a secret — never commit it.**
+
+### Set the function secrets + deploy (Supabase CLI)
+
+```bash
+supabase secrets set \
+  CF_ACCOUNT_ID=... \
+  CF_STREAM_API_TOKEN=... \
+  CF_STREAM_CUSTOMER_CODE=... \
+  --project-ref bgnadngztngkwzneknhd     # secrets — DO NOT COMMIT the token
+
+supabase functions deploy stream-signed-url --project-ref bgnadngztngkwzneknhd
+```
+
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected into the function — do not set them. The
+function is deployed with `verify_jwt=true`, so every call must carry a real user session.
+
+### Upload flow (per lesson video)
+
+1. **Upload the source video to Cloudflare Stream** (dashboard, `wrangler`, or the Stream API). Cloudflare
+   transcodes it and returns a video/**playback id** and a downloadable **MP4** URL.
+2. **Register the metadata in `video_assets`**, linked to a lesson — one row per lesson video:
+   `provider = 'cloudflare-stream'`, `playback_id = <the CF id>`, `download_url = <the MP4 URL>`,
+   `lesson_id`/`course_id` set. `tenant_id` is stamped by the `BEFORE INSERT` trigger from the author's
+   verified session — do **not** pass a client-chosen tenant.
+3. The mobile/console client then calls `stream-signed-url` with `{ lesson_id }` (or `{ video_asset_id }`)
+   to get a short-lived signed HLS URL for streaming; offline uses the cached `download_url` MP4 directly.
+
+## 6. Deferred / needs external accounts
+
 - **EAS / Expo** — native mobile builds (custom dev client), an Expo account, and `npm install`.
 - **Enterprise SSO** — per-tenant SAML/OIDC federated **into** this Supabase project (Authentication →
   Sign In / Providers), mapping onto the `profiles` tenant — NOT the OAuth Server feature. Deferred.
