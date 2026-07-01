@@ -164,9 +164,22 @@ function is deployed with `verify_jwt=true`, so every call must carry a real use
    Stream player in a WebView online and the cached `download_url` MP4 offline; the console renders an
    `<iframe>` preview.
 
-## 6. Deferred / needs external accounts
+## 6. Building the mobile app (Android / iOS)
 
-- **EAS / Expo** — native mobile builds (custom dev client), an Expo account, and `npm install`.
+`apps/mobile` is the Android + iOS learner app (React Native + Expo, custom dev client). It is
+source-only in this repo; to build and run it on a device/emulator, follow the runbook in
+[`apps/mobile/BUILD.md`](../apps/mobile/BUILD.md):
+
+- **Local (Android Studio + emulator/device):** root `npm install` → build `@soteria-forge/shared`
+  → set `apps/mobile/.env` (client-safe `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`)
+  → `cd apps/mobile && npx expo run:android`.
+- **EAS cloud build → installable APK (no local Android SDK needed):** `eas init` then
+  `eas build -p android --profile preview` (profiles are defined in `apps/mobile/eas.json`).
+
+## 7. Deferred / needs external accounts
+
+- **App-store distribution** — an Expo/EAS account + `eas submit` (Play Store / App Store); the
+  `production` profile in `eas.json` builds the app-bundle.
 - **Enterprise SSO** — per-tenant SAML/OIDC federated **into** this Supabase project (Authentication →
   Sign In / Providers), mapping onto the `profiles` tenant — NOT the OAuth Server feature. Deferred.
 </content>
