@@ -8,6 +8,11 @@ this runs in CI or the agent sandbox — run it on your own machine / Expo accou
 
 Android package: `com.soteriaforge.learner` · slug `soteria-forge-mobile`.
 
+> **Shortcut:** `scripts/setup-android.sh` (macOS/Linux) or `scripts/setup-android.ps1` (Windows)
+> runs steps 0–3 for you — installs Claude Code, registers the Supabase MCP, installs deps, builds
+> `@soteria-forge/shared`, and writes `apps/mobile/.env`. Then just launch an emulator and
+> `cd apps/mobile && npx expo run:android`.
+
 ## 0. One-time prerequisites
 
 - **Node 20+** and this monorepo checked out.
