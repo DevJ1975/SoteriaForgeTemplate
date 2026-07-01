@@ -31,6 +31,7 @@ Sign in with any of these (mobile or console) to see RLS tenant-scoping end-to-e
 | `admin@atl.test` | tenant-admin | ATL Curb-to-Cabin | ATL data; may author courses |
 | `worker@atl.test` | worker | ATL Curb-to-Cabin | the `Confined Space Entry` course (enrolled) |
 | `worker@demo.test` | worker | Soteria Forge Demo | **none of ATL's data** — proves cross-tenant isolation |
+| `super@soteria.test` | super-admin | (home: demo) | every tenant; can **provision new tenants** |
 
 **Verified live against the RLS policies:** acting as `worker@atl.test` returns exactly
 one course + one enrollment; acting as `worker@demo.test` returns **0 courses and only
@@ -73,8 +74,20 @@ New users don't self-pick a tenant — they're **invited** into one. The flow (m
    unchanged, so a member can never be silently re-tenanted).
 
 Verified live end-to-end: admin invites → new user redeems → provisioned as an ATL worker who then
-sees exactly the ATL course. The **first** admin of a brand-new tenant is provisioned out-of-band
-(seed / a `super-admin` tool), since there is no admin yet to invite them.
+sees exactly the ATL course.
+
+### Provisioning a new tenant (super-admin)
+
+A brand-new tenant has no admin to send the first invite, so a **super-admin** bootstraps it via
+`public.provision_tenant(name, slug, admin_email)` (migration `07`) — a `SECURITY DEFINER` RPC,
+super-admin-gated, that atomically creates the tenant **and** a `tenant-admin` invitation for
+`admin_email`, returning the tenant + invite token. The first admin then signs up and redeems that
+token through the same flow above. Super-admin is the one role allowed to set `tenant_id` explicitly
+(the stamp triggers auto-pin every *other* role to their own tenant).
+
+Verified live: `super@soteria.test` provisioned tenant `acme` + its first-admin invite; the invited
+`admin@acme.test` redeemed it, became `acme`'s `tenant-admin`, and could see **only** `acme` (1
+tenant, 0 courses) — none of ATL's or demo's data.
 
 ## Keys
 

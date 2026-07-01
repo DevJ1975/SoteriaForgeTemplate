@@ -58,9 +58,10 @@ on conflict (id) do update set
 -- pattern): a confirmed email/password user + its email identity, then the
 -- app-level profile carrying tenant_id + role. On a fresh `db reset` these are
 -- recreated with new ids (profiles.id must equal auth.users.id).
---   admin@atl.test    tenant-admin  ATL Curb-to-Cabin
---   worker@atl.test   worker        ATL Curb-to-Cabin  (enrolled in Confined Space Entry)
---   worker@demo.test  worker        Soteria Forge Demo (different tenant — proves isolation)
+--   admin@atl.test     tenant-admin  ATL Curb-to-Cabin
+--   worker@atl.test    worker        ATL Curb-to-Cabin  (enrolled in Confined Space Entry)
+--   worker@demo.test   worker        Soteria Forge Demo (different tenant — proves isolation)
+--   super@soteria.test super-admin   (home: demo) — cross-tenant; provisions new tenants
 do $$
 declare
   atl uuid := (select id from public.tenants where slug = 'atl-curb-to-cabin');
@@ -71,9 +72,10 @@ declare
 begin
   for u in
     select * from (values
-      ('admin@atl.test',   'ATL Tenant Admin', 'tenant-admin', atl),
-      ('worker@atl.test',  'ATL Worker',       'worker',       atl),
-      ('worker@demo.test', 'Demo Worker',      'worker',       dmo)
+      ('admin@atl.test',    'ATL Tenant Admin',     'tenant-admin', atl),
+      ('worker@atl.test',   'ATL Worker',           'worker',       atl),
+      ('worker@demo.test',  'Demo Worker',          'worker',       dmo),
+      ('super@soteria.test','Platform Super Admin', 'super-admin',  dmo)
     ) as t(email, full_name, role, tenant_id)
   loop
     if not exists (select 1 from auth.users where email = u.email) then
