@@ -21,8 +21,10 @@ and the repo's Stop/SubagentStop hook runs the suite behind you.
   `npm test --workspaces --if-present` otherwise (this is exactly what the Stop hook does).
 - **Type-checks.** `npm run typecheck --workspace <pkg>` — note ordering: `@soteria-forge/shared`
   and `@soteria-forge/ui` must be BUILT first so their `dist/` declarations exist before mobile /
-  console / backend type-check against them.
-- **Builds.** `vue-tsc` + `vite build` for the console; `tsc --noEmit` for backend/mobile/shared.
+  console type-check against them.
+- **Builds.** `vue-tsc` + `vite build` for the console; `tsc --noEmit` for mobile/shared. The
+  Supabase Edge Functions (`supabase/functions/**`) are Deno/TypeScript and are not part of the
+  Node type-check.
 
 ## How you work
 

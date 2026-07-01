@@ -3,9 +3,9 @@ name: offline-sync
 description: >-
   Owns the mobile offline layer under apps/mobile/src/offline/** and apps/mobile/src/db/** — the
   WatermelonDB store, the NetInfo-driven connectivity/queue, and the sync engine that flushes
-  queued xAPI completion statements to AppSync. Use for anything about working offline, queuing
-  learning activity, and syncing it. The guardian of "append-only, idempotent by UUID, no
-  conflict resolution — ever."
+  queued xAPI completion statements to Supabase (idempotent upsert). Use for anything about
+  working offline, queuing learning activity, and syncing it. The guardian of "append-only,
+  idempotent by UUID, no conflict resolution — ever."
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: claude-opus-4-8
 ---
@@ -32,16 +32,18 @@ shell leaves for you and DO NOT rewrite the shell:
 - **Sync is IDEMPOTENT by `id`.** The statement `id` is a CLIENT-GENERATED UUID
   (`@soteria-forge/shared` `generateStatementId`, backed by the `react-native-get-random-values`
   polyfill) generated ONCE at capture time and stored with the queued row. On every retry you
-  re-send the SAME id. The server dedupes on it (the id IS the primary key / model identifier),
-  so a re-send is a no-op create. Never regenerate an id on retry; never key the queue on the
-  timestamp or a payload hash — use `statementIdempotencyKey`, which returns the id.
+  re-send the SAME id. The server dedupes on it (the id IS the `completion_statements` PRIMARY KEY),
+  via `upsert(..., { onConflict: 'id', ignoreDuplicates: true })`, so a re-send is a no-op. Never
+  regenerate an id on retry; never key the queue on the timestamp or a payload hash — use
+  `statementIdempotencyKey`, which returns the id.
 - **There is NO conflict resolution, and there must never need to be.** Because statements are
   immutable and keyed by a stable UUID, two writers can never disagree about the same id.
   Do not build a merge, a last-write-wins, a vector clock, or any reconciliation step. If you
   find yourself designing conflict resolution, the design is wrong — stop.
 - **Tenant scope survives offline.** Every queued statement carries the `tenantId` captured
-  from the verified token at the time of activity. On sync it flows through the tenant-scoped
-  client and the server re-checks `assertTenantMatch`. Never let a queued item be re-tagged
+  from the verified session at the time of activity. On sync it flows through the caller's
+  Supabase client, and **Postgres RLS re-scopes the insert to the caller's tenant** (with the
+  insert-stamp trigger owning `tenant_id` server-side). Never let a queued item be re-tagged
   with a different tenant, and never sync a queue built under one session's tenant using
   another session's token.
 

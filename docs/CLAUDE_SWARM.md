@@ -2,6 +2,8 @@
 
 Companion to `SOTERIA_FORGE_REBUILD_PLAN.md`. This document is how you run the rebuild with a coordinated team of Claude Code agents instead of one session doing everything sequentially.
 
+> **Backend now runs on Supabase (ADR-0007).** The backend pivoted AWS/Amplify → **Supabase** (Postgres + RLS + Auth + Storage + Edge Functions); tenant isolation is enforced by **Postgres RLS** (`public.current_tenant_id()` + a `BEFORE INSERT` stamp trigger), not AppSync group rules or a Lambda authorizer, and the old `backend/` is deleted. The roster, example agent definitions, and guardrails below are reconciled to that reality; a few **phase-plan references in §7–§8 are historical** (the original AWS-era plan) and are kept for provenance. The operative agent definitions always live in `.claude/agents/*.md`.
+
 > Honest framing up front: multi-agent orchestration is powerful but it is **not free** — it burns significantly more tokens than a single session and adds coordination overhead. Use it where work genuinely parallelizes (independent modules, research, review). For sequential or same-file work, one focused session is better. You do not need the full swarm to make progress; you need it when a phase has independent workstreams.
 
 ---
@@ -41,13 +43,13 @@ Define these once as reusable agents (see §3). A role defined as a subagent can
 | Agent | Owns | Primary tools | Notes |
 |---|---|---|---|
 | `orchestrator` | Planning, task assignment, integration | (you drive this / team lead) | Holds the big picture; the only agent that sees the whole board |
-| `aws-infra` | Amplify Gen 2 / CDK, Cognito, DynamoDB tables, S3, IAM, AppSync provisioning | bash, file edit, AWS CLI (read-heavy) | Never touches production; never runs destructive AWS commands without explicit confirmation |
-| `api-data` | GraphQL schema, resolvers, Lambda business logic, the tenant authorizer | file edit, bash, tests | Enforces the tenant-match invariant in every resolver |
-| `mobile` | Expo/RN app: navigation, screens, auth flow, UI | file edit, bash (Expo/EAS) | Aligns with Ink/Bone/Cobalt design system |
-| `video` | Cloudflare Stream integration, react-native-video, offline download | file edit, bash | Signed URLs scoped by tenant; encrypted local storage |
-| `offline-sync` | WatermelonDB store, NetInfo layer, event-sourced statement queue | file edit, bash, tests | The append-only / idempotent contract is its whole job |
-| `console-web` | Vue admin repoint, content-ops screens | file edit, bash | Reuses `packages/shared` types |
-| `security-reviewer` | Tenant isolation, least-privilege IAM, secrets, adversarial review | read-only + tests | Runs *against* other agents' work; can block a phase |
+| `aws-infra` | Supabase backend as code under `supabase/**` — Postgres schema, RLS policies, storage rules, grant hardening, seed (historically "aws-infra") | bash, file edit, Supabase MCP (read-heavy) | Never mutates the live project as repo work; never runs destructive DB commands without explicit confirmation |
+| `api-data` | Domain contract in `packages/shared/**` — types, xAPI, tenant guard, generated Supabase DB types | file edit, bash, tests | Enforces the append-only/idempotent + tenant-scoping invariants in the contract |
+| `mobile` | Expo/RN app: navigation, screens, auth flow, UI (supabase-js data client) | file edit, bash (Expo/EAS) | Aligns with Ink/Bone/Cobalt design system |
+| `video` | Cloudflare Stream integration, `stream-signed-url` edge function, react-native-video, offline download | file edit, bash | Signed URLs scoped by tenant; `video_assets` metadata only |
+| `offline-sync` | WatermelonDB store, NetInfo layer, idempotent statement sync queue | file edit, bash, tests | The append-only / idempotent contract is its whole job |
+| `console-web` | Vue admin (repointed at Supabase), content-ops screens | file edit, bash | Reuses `packages/shared` types |
+| `security-reviewer` | Tenant isolation (RLS), least-privilege keys, secrets, adversarial review | read-only + tests | Runs *against* other agents' work; can block a phase |
 | `test-runner` | Test generation + execution across packages | bash, test tools | Gate for "done" |
 | `docs` | Keeps the rebuild plan and `docs/adr/` current | file edit | Writes the ADR at the end of each phase |
 
@@ -62,7 +64,7 @@ Example — `security-reviewer` (the most important agent to get right):
 ```markdown
 ---
 name: security-reviewer
-description: Adversarially reviews changes for tenant isolation, least-privilege IAM, and secret leakage. Use after any api-data, aws-infra, or offline-sync change, and before marking any phase done.
+description: Adversarially reviews changes for tenant isolation (RLS), least-privilege keys, and secret leakage. Use after any api-data, aws-infra, or offline-sync change, and before marking any phase done.
 tools: Read, Grep, Glob, Bash
 model: claude-opus-4-8
 ---
@@ -72,15 +74,16 @@ data for 64,000 workers under a federal + local contract. Your job is to
 find problems, not to be agreeable.
 
 On every review, check:
-1. TENANT ISOLATION (non-negotiable): every DynamoDB access is scoped by
-   TENANT#<tenantId>; every AppSync resolver / Lambda authorizer compares the
-   caller's custom:tenantId claim against the tenant partition and refuses
-   cross-tenant reads and writes. Flag ANY path that could read or write
-   another tenant's data.
-2. SECRETS: no AWS keys, tokens, connection strings, or .env contents in
-   source, logs, or commits.
-3. LEAST PRIVILEGE: IAM roles and tool allowlists grant only what the
-   component needs.
+1. TENANT ISOLATION (non-negotiable): every table is scoped by Postgres RLS
+   to public.current_tenant_id() (read from the verified session JWT), and a
+   BEFORE INSERT trigger stamps tenant_id from auth.uid(). No client sends a
+   tenant_id for authorization. Flag ANY path that could read or write
+   another tenant's data, or any table shipped with RLS off.
+2. SECRETS: no service-role key, project keys, tokens, connection strings,
+   Cloudflare Stream token, or .env contents in source, logs, or commits.
+3. LEAST PRIVILEGE: clients use only the RLS-protected publishable/anon key;
+   edge functions read through the caller's JWT, never the service role;
+   tool allowlists grant only what the component needs.
 4. Report findings ranked by severity. Do not approve if tenant isolation
    is unproven.
 ```
@@ -90,7 +93,7 @@ Example — `offline-sync`:
 ```markdown
 ---
 name: offline-sync
-description: Owns the offline data layer — WatermelonDB local store, NetInfo connectivity, and the event-sourced completion-statement sync queue against AppSync.
+description: Owns the offline data layer — WatermelonDB local store, NetInfo connectivity, and the idempotent completion-statement sync queue against Supabase.
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
@@ -111,8 +114,8 @@ Per-package `CLAUDE.md` files carry local conventions (the Expo app's, the backe
 
 ## 4. Coordination patterns for this rebuild
 
-- **Fan-out (parallel, independent):** mobile screens, individual AppSync resolvers, or research across AWS docs. "Use three subagents to scaffold the course-list, course-detail, and player screens independently."
-- **Sequential chain (dependent):** schema → resolvers → mobile data layer. Each agent consumes the previous one's output. This lives in the main conversation because subagents can't spawn subagents — the orchestrator is the conductor.
+- **Fan-out (parallel, independent):** mobile screens, individual RLS policies / migrations, or research across Supabase docs. "Use three subagents to scaffold the course-list, course-detail, and player screens independently."
+- **Sequential chain (dependent):** schema + RLS → shared types → mobile/console data layer. Each agent consumes the previous one's output. This lives in the main conversation because subagents can't spawn subagents — the orchestrator is the conductor.
 - **Adversarial review (quality):** a build agent (`api-data`) produces work, then `security-reviewer` audits it in a fresh context before it's accepted. This pairing is where tenant-isolation bugs get caught.
 - **Git worktrees (parallel phases):** when two phases are independent enough to run at once (e.g., `video` in one worktree, `console-web` in another), use worktrees so two branches aren't fighting over one checkout.
 
@@ -122,9 +125,9 @@ Per-package `CLAUDE.md` files carry local conventions (the Expo app's, the backe
 
 Hooks run around tool calls and at session/subagent boundaries — treat them like CI wired into the edit loop. The non-negotiables for this project:
 
-- **Never commit secrets.** Block commits touching `.env`, AWS credentials, or key-shaped strings.
-- **Never target production AWS.** No destructive AWS CLI (`delete-*`, `remove-*`, teardown) without explicit human confirmation. Agents operate against dev/sandbox only.
-- **Tenant isolation is a release gate.** No phase is "done" until `security-reviewer` confirms the isolation invariant holds for the new surface.
+- **Never commit secrets.** Block commits touching secret env files, the Supabase **service-role key**, AWS credentials, or key-shaped strings (`.claude/hooks/block-secrets.sh`).
+- **Never mutate the live backend without confirmation.** No destructive command against the live Supabase project (`db reset`, `DROP`/`TRUNCATE`/`DELETE` on live, `pause_project`/`delete_branch`), and no destructive AWS CLI (`delete-*`, `remove-*`, teardown), without explicit human confirmation. The `.claude/hooks/block-destructive-aws.sh` hook guards the AWS surface; migrations are add-a-new-numbered-one, never edit-an-applied-one.
+- **Tenant isolation is a release gate.** No phase is "done" until `security-reviewer` confirms the RLS isolation invariant holds for the new surface.
 - **Tests before stop; lint before commit.** A `SubagentStop` / `Stop` hook runs the test suite; a pre-commit hook runs lint.
 - **Issue/phase ID in branch names.** Keeps parallel worktrees and teammates traceable.
 - **No malicious or exfiltrating code, ever** — including anything that would ship data off-tenant or weaken auth.
@@ -173,13 +176,13 @@ Example hook wiring (conceptual, in `.claude/settings.json`):
 ## 8. Concrete kickoff prompts
 
 **Phase 2, fan-out (subagents):**
-> "We're in Phase 2. Using the `api-data` agent, spawn three subagents in parallel — one each for the Course, Enrollment, and CompletionStatement AppSync resolvers. Each must enforce the tenant-match invariant (compare `custom:tenantId` claim to the tenant partition) and return only a summary of files changed and the auth check applied. Then have `security-reviewer` audit all three before we accept them."
+> "We're in Phase 2. Using the `aws-infra` agent, spawn three subagents in parallel — one each for the `courses`, `enrollments`, and `completion_statements` tables and their RLS policies. Each must enforce the tenant-isolation invariant (RLS scoped to `current_tenant_id()`, inserts stamped by the trigger, no client-sent tenant_id) and return only a summary of files changed and the policy applied. Then have `security-reviewer` audit all three before we accept them."
 
 **Phase 5, focused single-stream:**
-> "Phase 5, offline. Do NOT fan out — this is sequential and dependency-heavy. Using the `offline-sync` agent: (1) set up the WatermelonDB schema for downloaded courses and the statement queue, (2) wire NetInfo, (3) implement idempotent sync of append-only completion statements to the AppSync mutation. After each step, run the test suite via the Stop hook before continuing."
+> "Phase 5, offline. Do NOT fan out — this is sequential and dependency-heavy. Using the `offline-sync` agent: (1) set up the WatermelonDB schema for downloaded courses and the statement queue, (2) wire NetInfo, (3) implement idempotent sync of append-only completion statements via the Supabase upsert (`onConflict: 'id', ignoreDuplicates: true`). After each step, run the test suite via the Stop hook before continuing."
 
 **Cross-layer (agent team, experimental):**
-> "Enable the team for this one. Team lead coordinates; spin up `mobile`, `api-data`, and `test-runner` as teammates to land the 'download a course for offline' feature across the app, the resolver, and its tests. Teammates coordinate directly; report blockers to me. Keep it scoped to this one feature."
+> "Enable the team for this one. Team lead coordinates; spin up `mobile`, `aws-infra`, and `test-runner` as teammates to land the 'download a course for offline' feature across the app, the Supabase schema/RLS, and its tests. Teammates coordinate directly; report blockers to me. Keep it scoped to this one feature."
 
 ---
 

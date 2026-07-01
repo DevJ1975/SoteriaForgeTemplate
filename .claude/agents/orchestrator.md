@@ -17,23 +17,29 @@ slices, keep every subtree agreeing on the shared contract, and integrate the re
 ## The shared architecture contract (memorize; enforce on every hand-off)
 
 - **Monorepo (Turborepo):** `apps/mobile` (RN + Expo learner app), `apps/console` (Vue admin,
-  KEPT — must not break), `packages/shared` (domain types, xAPI, single-table keys + tenant
-  helpers), `packages/ui` (design tokens), `backend/` (Amplify Gen 2: auth/data/storage/functions).
-- **Single DynamoDB table.** `PK = TENANT#<tenantId>`; `SK` = `TENANT#META | USER#<id> |
-  COURSE#<id> | MODULE#<courseId>#<id> | LESSON#<courseId>#<moduleId>#<id> |
-  ENROLLMENT#<userId>#<courseId> | STMT#<statementId> | VIDEO#<videoId>`. GSIs:
-  courses-by-tenant, enrollments-by-user, statements-by-user, users-by-tenant. Key builders
-  live in `packages/shared/src/keys.ts` — nobody hand-rolls key strings.
-- **Tenant isolation (the #1 rule).** Every access is scoped by `TENANT#<tenantId>`. The
-  caller's tenant comes ONLY from the verified Cognito `custom:tenantId` claim — never from
-  args/body/headers. Every resolver and the Lambda authorizer call `assertTenantMatch`
-  (`packages/shared/src/tenant.ts`) and refuse cross-tenant reads/writes.
-- **Auth.** ONE Cognito user pool, Lite tier. Immutable `custom:tenantId`. Groups
-  `worker | supervisor | tenant-admin | super-admin`. Enterprise SSO = per-tenant SAML/OIDC
-  federated into the SAME pool (deferred).
+  KEPT — must not break), `packages/shared` (domain types, xAPI, tenant guard + generated Supabase
+  DB types), `packages/ui` (design tokens), `supabase/` (Supabase-as-code: migrations, RLS, seed,
+  edge functions). The backend pivoted AWS/Amplify → Supabase (ADR-0007); `backend/` is deleted.
+- **Relational Postgres schema.** Tables in `public`: `tenants`, `profiles` (1:1 with
+  `auth.users`; holds `tenant_id` + `role`), `courses`, `modules`, `lessons`, `enrollments`,
+  `completion_statements` (append-only), `video_assets` (metadata only), `invitations`,
+  `certificates`. No hand-rolled keys — the AWS single-table builders were pruned (ADR-0007).
+- **Tenant isolation (the #1 rule) — enforced by Postgres RLS.** Every table is RLS-scoped to the
+  caller's own tenant via `public.current_tenant_id()` (a `SECURITY DEFINER` function reading the
+  caller's `profiles` row from the verified session JWT), and a `BEFORE INSERT` trigger stamps
+  `tenant_id` from `auth.uid()`. The caller's tenant comes ONLY from the verified session — never
+  from args/body/headers; clients send no tenant_id for authorization. The retained
+  `assertTenantMatch` guard (`packages/shared/src/tenant.ts`) is a defensive utility, not the
+  enforcement point.
+- **Auth.** Supabase Auth (email/password); `profiles` holds `tenant_id` + `role`. Roles
+  `worker | supervisor | tenant-admin | super-admin`; `super-admin` is the one cross-tenant role.
+  The publishable (anon) key is client-safe (RLS-protected); the service-role key bypasses RLS and
+  never enters a client. Enterprise SSO = per-tenant SAML/OIDC into the SAME project (deferred).
 - **xAPI.** Completion statements are `{ id (client-generated UUID), tenantId, actor, verb,
-  object, result?, context?, timestamp }`. APPEND-ONLY, IDEMPOTENT by `id`. No conflict
-  resolution, ever.
+  object, result?, context?, timestamp }`. APPEND-ONLY, IDEMPOTENT by `id` (the PK). No conflict
+  resolution, ever — sync is `upsert(..., { onConflict: 'id', ignoreDuplicates: true })`.
+- **Video.** Bytes on Cloudflare Stream; `video_assets` metadata only; the `stream-signed-url`
+  edge function mints tenant-checked signed playback URLs through the caller's JWT.
 - **Brand (Ink/Bone/Cobalt).** ink `#0E1A2E`, blue `#3DA9FC`, orange `#FF6B1F`, paper
   `#F5F4EF`. Canonical scale: `apps/console/src/theme/tokens.css` + `packages/ui`.
 
@@ -45,9 +51,9 @@ slices, keep every subtree agreeing on the shared contract, and integrate the re
    it may touch, the contract points it must honor, and its done-criteria. Never let two
    subagents write the same files in the same pass.
 3. **Delegate with the `Task` tool.** Give each subagent the contract excerpts it needs and an
-   explicit boundary ("touch only `backend/**`"). Prefer parallel slices when they are truly
+   explicit boundary ("touch only `supabase/**`"). Prefer parallel slices when they are truly
    independent; sequence them when one produces a type/contract the next consumes
-   (e.g. shared → backend → mobile).
+   (e.g. supabase schema → shared types → mobile/console).
 4. **Gate on the invariants.** Any slice that touches data access, auth, sync, or storage MUST
    be followed by a `security-reviewer` pass BEFORE you consider it done. Any slice that
    changes code MUST end green under `test-runner`.

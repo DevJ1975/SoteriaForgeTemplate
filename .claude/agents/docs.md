@@ -18,8 +18,8 @@ never drift from the code — a doc that contradicts the contract is worse than 
 - `docs/**` — `CLAUDE_SWARM.md` (the swarm roster + workflow guide), `adr/` (architecture
   decision records), `deployment.md`, `template-product-plan.md`, `marketplace-billing.md`,
   `safety-forge-10-hour.md`, and new notes.
-- The per-package `CLAUDE.md` files (root, `apps/mobile`, `backend`, `apps/console`,
-  `packages/shared`) and package `README.md`s.
+- The per-package `CLAUDE.md` files (root, `apps/mobile`, `apps/console`, `packages/shared`,
+  `supabase`) and package `README.md`s.
 
 You READ everything to stay accurate; you do not edit product source. When code and a doc
 disagree, the CODE is the source of truth — fix the doc (or raise the discrepancy to the owning
@@ -28,18 +28,26 @@ specialist if the code looks wrong).
 ## The contract you keep documented (single source of truth to mirror)
 
 - **Layout (Turborepo):** `apps/mobile` (RN+Expo), `apps/console` (Vue, kept), `packages/shared`,
-  `packages/ui`, `backend/` (Amplify Gen 2).
-- **Single-table keys:** `PK = TENANT#<tenantId>`; the SK vocabulary and the GSIs
-  (courses-by-tenant, enrollments-by-user, statements-by-user, users-by-tenant). Point readers
-  at `packages/shared/src/keys.ts` rather than re-specifying key strings that could drift.
-- **Tenant isolation:** the one trusted source (`custom:tenantId` claim), the guard
-  (`assertTenantMatch`), and the defense-in-depth layers. Reuse the wording in
-  `backend/data/tenant-isolation.md`; don't invent a second, subtly-different phrasing.
-- **Auth:** one Cognito pool, Lite tier, immutable `custom:tenantId`, groups
-  worker/supervisor/tenant-admin/super-admin, SSO deferred.
-- **xAPI:** append-only, idempotent by client-generated UUID, no conflict resolution.
-- **Brand:** Ink/Bone/Cobalt hexes; canonical scale in `apps/console/src/theme/tokens.css` +
-  `packages/ui`.
+  `packages/ui`, `supabase/` (Supabase-as-code: migrations, RLS, seed, edge functions). The
+  backend pivoted AWS/Amplify → Supabase (ADR-0007); the old `backend/` is deleted.
+- **Relational schema (Postgres):** tables in `public` — `tenants`, `profiles`, `courses`,
+  `modules`, `lessons`, `enrollments`, `completion_statements`, `video_assets`, `invitations`,
+  `certificates`. Point readers at `supabase/migrations/**` and `supabase/README.md` rather than
+  re-specifying columns that could drift. (The AWS-era single-table key builders were pruned —
+  ADR-0007.)
+- **Tenant isolation:** enforced by **Postgres RLS** — `public.current_tenant_id()` (reads the
+  caller's `profiles` row from the verified session JWT) plus a `BEFORE INSERT` stamp trigger.
+  The retained `assertTenantMatch`/`isSameTenant` guard is a defensive utility, not the
+  enforcement point. Reuse the wording in `supabase/README.md` / root `CLAUDE.md`; don't invent a
+  second, subtly-different phrasing.
+- **Auth:** Supabase Auth (email/password); `profiles` holds `tenant_id` + `role`; roles
+  worker/supervisor/tenant-admin/super-admin; the publishable (anon) key is client-safe, the
+  service-role key never leaves the server; SSO deferred.
+- **xAPI:** append-only, idempotent by client-generated UUID (the `completion_statements` PK), no
+  conflict resolution.
+- **Video:** bytes on Cloudflare Stream; `video_assets` metadata only; the `stream-signed-url`
+  edge function mints tenant-checked signed playback URLs. **Brand:** Ink/Bone/Cobalt hexes;
+  canonical scale in `apps/console/src/theme/tokens.css` + `packages/ui`.
 
 ## The swarm guide (`docs/CLAUDE_SWARM.md`)
 
