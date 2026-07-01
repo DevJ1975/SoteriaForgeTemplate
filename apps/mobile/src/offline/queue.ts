@@ -28,6 +28,7 @@ import { Q } from '@nozbe/watermelondb';
 import type { Database } from '@nozbe/watermelondb';
 import {
   createCompletionStatement,
+  xapiVerbs,
   type XapiStatement,
   type XapiActor,
   type XapiVerb,
@@ -188,6 +189,44 @@ export class CompletionQueue {
     return this.collection
       .query(Q.where('synced', false), Q.sortBy('enqueued_at', Q.asc))
       .fetch();
+  }
+
+  /**
+   * The set of lesson ids this device has locally recorded as COMPLETED, read
+   * from the append-only outbox (synced or not) so the UI reflects a completion
+   * the instant it is enqueued — before it ever reaches the server.
+   *
+   * A completion is any queued statement whose verb is `completed` and whose
+   * `context.lesson_id` is set (the same shape the server progress trigger reads).
+   * When `courseId` is given, only completions in that course are returned. This
+   * is READ-ONLY: it never mutates a row, preserving the append-only contract.
+   *
+   * The statement's own `tenant_id`/`context` are trusted here only for local
+   * display — authorization is still Postgres RLS on the server; a mis-scoped row
+   * could never be inserted server-side in the first place.
+   */
+  async completedLessonIds(courseId?: string): Promise<Set<string>> {
+    const rows = await this.collection.query().fetch();
+    const completed = new Set<string>();
+    for (const row of rows) {
+      let statement: XapiStatement;
+      try {
+        statement = row.statement;
+      } catch {
+        // A corrupt local JSON payload must not blank the whole list — skip it.
+        continue;
+      }
+      if (statement.verb?.id !== xapiVerbs.completed) continue;
+      const ctx = (statement.context ?? {}) as {
+        course_id?: unknown;
+        lesson_id?: unknown;
+      };
+      const lessonId = typeof ctx.lesson_id === 'string' ? ctx.lesson_id : undefined;
+      if (!lessonId) continue;
+      if (courseId && ctx.course_id !== courseId) continue;
+      completed.add(lessonId);
+    }
+    return completed;
   }
 
   /** Count of unsynced rows — drives the OfflineBanner's pending badge. */
