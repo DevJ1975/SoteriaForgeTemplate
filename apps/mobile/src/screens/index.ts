@@ -8,4 +8,5 @@ export { HomeScreen } from './HomeScreen';
 export { CourseListScreen } from './CourseListScreen';
 export { CourseDetailScreen } from './CourseDetailScreen';
 export { LessonPlayerScreen } from './LessonPlayerScreen';
+export { CertificatesScreen } from './CertificatesScreen';
 export { JoinTenantScreen, extractInviteToken } from './JoinTenantScreen';

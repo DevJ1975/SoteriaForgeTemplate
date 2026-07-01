@@ -4,6 +4,8 @@
 export { Screen } from './Screen';
 export type { ScreenProps } from './Screen';
 export { OfflineBanner } from './OfflineBanner';
+export { CertificateView } from './CertificateView';
+export type { CertificateViewProps } from './CertificateView';
 /**
  * Back-compat: the banner's connectivity shape now lives in the offline layer
  * (OfflineContextValue). Re-exported here under the original `Connectivity` name

@@ -17,8 +17,8 @@
  * the verified session (via the hook's `useAuth`), never from route input. No
  * hardcoded brand hex — every color is a `@soteria-forge/ui` token.
  */
-import { useCallback } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Accordion,
@@ -30,8 +30,14 @@ import {
   ProgressBar,
   useTheme,
 } from '@soteria-forge/ui';
-import { Screen } from '../components';
-import { useCourseTree, type LessonNode } from '../api';
+import { CertificateView, Screen } from '../components';
+import { useAuth } from '../auth';
+import {
+  useCertificate,
+  useCourseTree,
+  type CertificateRecord,
+  type LessonNode,
+} from '../api';
 
 /** Human label for a lesson kind. */
 function kindLabel(kind: LessonNode['kind']): string {
@@ -58,8 +64,13 @@ function kindLabel(kind: LessonNode['kind']): string {
 export function CourseDetailScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { tree, loading, backendPending, error, refetch } = useCourseTree(id);
+  // The caller's own certificate for this course (RLS-scoped, owner-only). Null
+  // until the course is complete + a certificate has been issued server-side.
+  const { certificate, refetch: refetchCertificate } = useCertificate(id);
+  const [certOpen, setCertOpen] = useState(false);
 
   // Re-read the tree (and thus the LOCAL completed-lesson set) whenever this
   // screen regains focus — so returning from the lesson player, where a
@@ -69,7 +80,10 @@ export function CourseDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       refetch();
-    }, [refetch]),
+      // Re-check the certificate too — it's issued server-side when the
+      // enrollment completes, so a fresh visit after finishing surfaces it.
+      refetchCertificate();
+    }, [refetch, refetchCertificate]),
   );
 
   const openLesson = (lessonId: string) => {
@@ -211,6 +225,52 @@ export function CourseDetailScreen() {
         ) : null}
       </Card>
 
+      {/* Achievement / Certificate earned — shown once the course is complete AND
+          a certificate has been issued (server-side, on enrollment completion).
+          Tapping it opens the branded certificate. RLS makes the row owner-only. */}
+      {completed && certificate ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View your certificate"
+          onPress={() => setCertOpen(true)}
+          style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
+        >
+          <Card raised style={styles.certRow}>
+            <View
+              style={[
+                styles.certGlyph,
+                { backgroundColor: theme.colors.success, borderRadius: theme.radii.md },
+              ]}
+            >
+              <Text style={{ color: theme.colors.onPrimary, fontSize: 22 }}>★</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontFamily: theme.fonts.display,
+                  fontWeight: '700',
+                  fontSize: 17,
+                }}
+              >
+                Certificate earned
+              </Text>
+              <Text
+                style={{
+                  color: theme.colors.textMuted,
+                  fontFamily: theme.fonts.body,
+                  fontSize: 13,
+                  marginTop: 2,
+                }}
+              >
+                {certificate.certificateNumber} · Tap to view
+              </Text>
+            </View>
+            <Badge label="View" tone="success" />
+          </Card>
+        </Pressable>
+      ) : null}
+
       {/* Modules → lessons */}
       {tree.modules.length > 0 ? (
         <Accordion
@@ -244,7 +304,58 @@ export function CourseDetailScreen() {
       ) : (
         <Notice text="This course has no modules yet." />
       )}
+
+      {/* Full-screen certificate viewer. Rendered from the OWNER's certificate
+          row; recipient name comes from the verified session, never the row. */}
+      {certificate && user ? (
+        <Modal
+          visible={certOpen}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setCertOpen(false)}
+          presentationStyle="fullScreen"
+        >
+          <CertificateModalBody
+            certificate={certificate}
+            recipientName={user.displayName ?? user.email ?? user.username}
+            onClose={() => setCertOpen(false)}
+          />
+        </Modal>
+      ) : null}
     </Screen>
+  );
+}
+
+/** The scrollable body of the full-screen certificate modal (themed chrome). */
+function CertificateModalBody({
+  certificate,
+  recipientName,
+  onClose,
+}: {
+  certificate: CertificateRecord;
+  recipientName: string;
+  onClose: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.modalRoot, { backgroundColor: theme.colors.bg }]}>
+      <View style={styles.modalBar}>
+        <Text
+          style={{
+            color: theme.colors.text,
+            fontFamily: theme.fonts.display,
+            fontWeight: '700',
+            fontSize: 20,
+          }}
+        >
+          Your certificate
+        </Text>
+        <Button title="Close" variant="secondary" size="sm" onPress={onClose} />
+      </View>
+      <ScrollView contentContainerStyle={styles.modalContent}>
+        <CertificateView certificate={certificate} recipientName={recipientName} />
+      </ScrollView>
+    </View>
   );
 }
 
@@ -374,4 +485,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  certRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  certGlyph: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  modalRoot: { flex: 1 },
+  modalBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 16,
+  },
+  modalContent: { padding: 16, paddingBottom: 48 },
 });

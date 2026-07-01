@@ -37,6 +37,7 @@ import type {
 } from '@soteria-forge/shared'
 import { GROUP_TO_USER_ROLE, isCognitoGroup } from '@soteria-forge/shared'
 import type {
+  CertificateRow,
   CompletionStatementRow,
   CourseInsert,
   CourseRow,
@@ -55,6 +56,9 @@ import type {
   TenantInsert,
   TenantRow,
   TenantUpdate,
+  VideoAssetInsert,
+  VideoAssetRow,
+  VideoAssetUpdate,
 } from '@soteria-forge/shared/supabase'
 import { supabase } from './supabase'
 
@@ -311,6 +315,72 @@ function actorName(actor: unknown): string | undefined {
 type EnrollmentReportRow = EnrollmentRow & {
   profiles: { full_name: string | null; email: string | null } | null
   courses: { title: string | null; status: string | null } | null
+}
+
+// ===========================================================================
+// Certificates (READ-ONLY) — auto-issued on course completion by a SECURITY
+// DEFINER trigger. Clients can NEVER insert/update/delete a certificate (there
+// is no such RLS policy). The console only READS them, RLS-scoped to the
+// caller's own tenant (same-tenant supervisor/tenant-admin, or super-admin) via
+// `current_tenant_id()` — so NO client tenant filter is ever sent.
+// ===========================================================================
+
+/**
+ * A certificate joined to the worker it was issued to and the course it
+ * certifies, as the Certificates table renders it. RLS scopes every side to the
+ * caller's own tenant, so this is exactly the tenant's certificate set — no
+ * tenant filter is sent. Enriched with `workerName`/`workerEmail`/`courseTitle`
+ * for display.
+ */
+export type CertificateListRow = CertificateRow & {
+  workerName: string
+  workerEmail: string
+  courseTitle: string
+}
+
+/**
+ * The embedded-relation shape PostgREST returns for
+ * `.select('*, profiles(full_name, email), courses(title)')` on certificates.
+ */
+type CertificateJoinedRow = CertificateRow & {
+  profiles: { full_name: string | null; email: string | null } | null
+  courses: { title: string | null } | null
+}
+
+// ===========================================================================
+// Video registration (Cloudflare Stream) — a tenant-admin links a Stream video
+// to a video-kind lesson. `video_assets` stores METADATA ONLY (provider +
+// playback/UID + optional MP4 download URL); it NEVER holds bytes. tenant_id is
+// server-stamped by a BEFORE INSERT trigger from the verified session and is
+// NEVER sent from the client (a client-chosen tenant_id would be a security
+// bug); RLS re-authorizes that the caller is tenant-admin/super-admin and that
+// the target course/lesson belong to their own tenant.
+// ===========================================================================
+
+/** The Stream link a tenant-admin pastes for a video lesson. */
+export type LessonVideoInput = {
+  /** The Cloudflare Stream playback id / video UID (from the Stream dashboard). */
+  playbackId: string
+  /** Optional MP4 download URL for offline/low-bandwidth delivery. */
+  downloadUrl?: string
+}
+
+/**
+ * Read the newest `video_assets` row for a lesson, or null when none is linked.
+ * RLS scopes the read to the caller's own tenant — no tenant filter is sent.
+ * Module-level (not a `this`-bound method) so it is safe to reuse from both
+ * `getLessonVideo` and `setLessonVideo` regardless of how they are called.
+ */
+async function loadLessonVideoRow(lessonId: string): Promise<VideoAssetRow | null> {
+  const { data, error } = await supabase
+    .from('video_assets')
+    .select('*')
+    .eq('lesson_id', lessonId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) fail('Unable to load lesson video', error)
+  return data ?? null
 }
 
 // ===========================================================================
@@ -1168,6 +1238,124 @@ export const consoleApi = {
     }))
 
     return { report: { summary, byCourse, byWorker, recentCompletions } }
+  },
+
+  // -------------------------------------------------------------------------
+  // Certificates (READ-ONLY) — auto-issued on course completion by a trigger.
+  //
+  // A single RLS-scoped SELECT joined to the certified worker (profiles) and the
+  // course (courses). RLS constrains every row to the caller's OWN tenant via
+  // `current_tenant_id()` (same-tenant supervisor/tenant-admin, or super-admin),
+  // so NO client tenant filter is sent for authorization — adding one would be
+  // redundant at best and a security smell. Certificates are immutable to
+  // clients (no insert/update/delete policy exists); this surface only reads.
+  // -------------------------------------------------------------------------
+
+  /**
+   * List the caller's tenant certificates, newest first, each joined to the
+   * worker it was issued to and the course it certifies. RLS scopes the result
+   * to the caller's own tenant — no tenant filter is sent. Rows are enriched
+   * with `workerName`/`workerEmail`/`courseTitle` for the table.
+   */
+  async listCertificates(): Promise<{ certificates: CertificateListRow[] }> {
+    const { data, error } = await supabase
+      .from('certificates')
+      .select('*, profiles(full_name, email), courses(title)')
+      .order('issued_at', { ascending: false })
+    if (error) fail('Unable to list certificates', error)
+
+    const certificates = ((data ?? []) as unknown as CertificateJoinedRow[]).map((row) => {
+      const { profiles, courses, ...certificate } = row
+      return {
+        ...certificate,
+        workerName: profiles?.full_name ?? profiles?.email ?? certificate.user_id,
+        workerEmail: profiles?.email ?? '',
+        courseTitle: courses?.title ?? 'Untitled course',
+      }
+    })
+    return { certificates }
+  },
+
+  // -------------------------------------------------------------------------
+  // Video registration (Cloudflare Stream) — a tenant-admin links a Stream video
+  // to a video-kind lesson. `video_assets` stores METADATA ONLY (provider +
+  // playback/UID + optional MP4 download URL) — NEVER bytes.
+  //
+  // tenant_id is stamped by the BEFORE INSERT trigger from the verified session,
+  // so INSERTs use the `ServerStamped<>` helper to build a field-checked payload
+  // WITHOUT a tenant_id — a client can NEVER seed another tenant's row. There is
+  // no unique constraint on `lesson_id`, so `setLessonVideo` reads the current
+  // link first and UPDATEs it in place when present (never touching tenant_id),
+  // else INSERTs — an idempotent link, one asset per lesson. RLS re-authorizes
+  // that the caller is tenant-admin/super-admin and that the course/lesson are in
+  // their own tenant; a non-admin caller is rejected (SQLSTATE 42501).
+  // -------------------------------------------------------------------------
+
+  /**
+   * The current Stream link for a lesson, or null when none is registered yet.
+   * RLS scopes `video_assets` to the caller's own tenant — no tenant filter is
+   * sent. Returns the newest asset for the lesson (there is normally one).
+   */
+  async getLessonVideo(lessonId: string): Promise<{ video: VideoAssetRow | null }> {
+    return { video: await loadLessonVideoRow(lessonId) }
+  },
+
+  /**
+   * Link a Cloudflare Stream video to a lesson: register (or re-register) a
+   * `video_assets` metadata row. tenant_id is omitted — stamped server-side by
+   * the trigger under RLS; we NEVER send a client-chosen tenant. Provider is
+   * fixed to 'cloudflare-stream'. If the lesson already has an asset we UPDATE it
+   * in place (by id, leaving tenant_id untouched); otherwise we INSERT one. A
+   * non-admin caller, or a lesson/course outside the caller's tenant, is rejected
+   * by RLS. Returns the persisted row.
+   */
+  async setLessonVideo(
+    lessonId: string,
+    courseId: string,
+    input: LessonVideoInput,
+  ): Promise<{ video: VideoAssetRow }> {
+    const playbackId = input.playbackId.trim()
+    const downloadUrl = input.downloadUrl?.trim() || null
+
+    // Is there already an asset for this lesson? (RLS-scoped read.)
+    const existing = await loadLessonVideoRow(lessonId)
+
+    if (existing) {
+      // Re-register in place. Target by `id`; RLS re-authorizes the write. We
+      // NEVER send tenant_id — the row keeps its server-stamped tenant.
+      const update: VideoAssetUpdate = {
+        provider: 'cloudflare-stream',
+        playback_id: playbackId,
+        download_url: downloadUrl,
+        course_id: courseId,
+        lesson_id: lessonId,
+      }
+      const { data, error } = await supabase
+        .from('video_assets')
+        .update(update)
+        .eq('id', existing.id)
+        .select('*')
+        .single()
+      if (error || !data) fail('Unable to update lesson video', error)
+      return { video: data }
+    }
+
+    // First registration. tenant_id intentionally omitted — server-stamped by
+    // the trigger under RLS. A client-chosen tenant is never sent.
+    const insert: ServerStamped<VideoAssetInsert> = {
+      provider: 'cloudflare-stream',
+      playback_id: playbackId,
+      download_url: downloadUrl,
+      course_id: courseId,
+      lesson_id: lessonId,
+    }
+    const { data, error } = await supabase
+      .from('video_assets')
+      .insert(insert as VideoAssetInsert)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to register lesson video', error)
+    return { video: data }
   },
 
   // -------------------------------------------------------------------------

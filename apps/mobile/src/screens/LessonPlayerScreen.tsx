@@ -27,7 +27,8 @@
  * reflection/quiz/document = the description + a prompt). No hardcoded brand hex.
  */
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import Video from 'react-native-video';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   generateStatementId,
@@ -37,7 +38,7 @@ import {
 import { Badge, Button, Card, Chip, Divider, ProgressBar, useTheme } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useAuth } from '../auth';
-import { useLesson, type LessonDetail } from '../api';
+import { useLesson, useLessonVideo, type LessonDetail } from '../api';
 import { completionQueue } from '../offline';
 
 /** Human label + prompt for each lesson kind's placeholder body. */
@@ -236,38 +237,11 @@ export function LessonPlayerScreen() {
         </View>
       </Card>
 
-      {/* Play surface — video lessons get a themed placeholder; other kinds skip
-          it. VideoAsset holds metadata only; a real signed playback URL is
-          resolved server-side (left as the documented video seam). */}
-      {lesson.kind === 'video' ? (
-        <View
-          style={[
-            styles.playerPlaceholder,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
-              borderRadius: theme.radii.md,
-            },
-          ]}
-        >
-          <View
-            style={[styles.playGlyph, { borderColor: theme.colors.primary }]}
-            accessibilityLabel="Play"
-          >
-            <Text style={{ color: theme.colors.primary, fontSize: 22, marginLeft: 3 }}>▶</Text>
-          </View>
-          <Text
-            style={{
-              color: theme.colors.textMuted,
-              fontFamily: theme.fonts.body,
-              fontSize: 13,
-              marginTop: 10,
-            }}
-          >
-            Lesson video plays here
-          </Text>
-        </View>
-      ) : null}
+      {/* Play surface — video lessons resolve a signed HLS URL (or a cached
+          offline rendition) and play it; other kinds skip it. VideoAsset holds
+          metadata only — the signed playback URL is minted server-side and the
+          player degrades gracefully if it isn't available (see LessonVideo). */}
+      {lesson.kind === 'video' ? <LessonVideo lessonId={lesson.id} /> : null}
 
       <Card>
         {lesson.description ? (
@@ -323,6 +297,98 @@ export function LessonPlayerScreen() {
   );
 }
 
+/**
+ * LessonVideo — the play surface for a `video` lesson.
+ *
+ * Resolves a playable source via `useLessonVideo` (a cached offline rendition if
+ * present, else a signed HLS URL from the `stream-signed-url` edge function) and:
+ *   - shows a spinner while resolving,
+ *   - plays it with `react-native-video` when ready,
+ *   - degrades to a friendly "video isn't available yet" placeholder on
+ *     501 (provider unconfigured) / 403 (not this tenant's video) / any error.
+ *
+ * It NEVER gates completion — the Mark-complete button lives outside this
+ * component and works regardless of what happens here. No hardcoded brand hex.
+ */
+function LessonVideo({ lessonId }: { lessonId: string }) {
+  const theme = useTheme();
+  const { status, uri, offline, message, refetch } = useLessonVideo(lessonId);
+
+  const surfaceStyle = [
+    styles.playerPlaceholder,
+    {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radii.md,
+    },
+  ];
+
+  if (status === 'loading') {
+    return (
+      <View style={surfaceStyle}>
+        <ActivityIndicator color={theme.colors.primary} />
+        <Text
+          style={{
+            color: theme.colors.textMuted,
+            fontFamily: theme.fonts.body,
+            fontSize: 13,
+            marginTop: 10,
+          }}
+        >
+          Preparing video…
+        </Text>
+      </View>
+    );
+  }
+
+  if (status === 'ready' && uri) {
+    return (
+      <View style={[styles.playerFrame, { borderRadius: theme.radii.md, backgroundColor: theme.colors.overlay }]}>
+        <Video
+          source={{ uri }}
+          style={styles.video}
+          controls
+          paused
+          resizeMode="contain"
+          // A cached offline rendition is a plain file/MP4; the signed source is
+          // an HLS manifest. react-native-video handles both from the URI.
+          accessibilityLabel={offline ? 'Downloaded lesson video' : 'Lesson video'}
+        />
+      </View>
+    );
+  }
+
+  // unconfigured / forbidden / error → the friendly, non-blocking placeholder.
+  return (
+    <View style={surfaceStyle}>
+      <View
+        style={[styles.playGlyph, { borderColor: theme.colors.border }]}
+        accessibilityLabel="Video unavailable"
+      >
+        <Text style={{ color: theme.colors.textMuted, fontSize: 22, marginLeft: 3 }}>▶</Text>
+      </View>
+      <Text
+        style={{
+          color: theme.colors.textMuted,
+          fontFamily: theme.fonts.body,
+          fontSize: 13,
+          lineHeight: 19,
+          marginTop: 10,
+          textAlign: 'center',
+          maxWidth: 320,
+        }}
+      >
+        {message ?? 'This lesson’s video isn’t available yet.'}
+      </Text>
+      {status === 'error' ? (
+        <View style={{ marginTop: 12 }}>
+          <Button title="Try again" variant="secondary" size="sm" onPress={refetch} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 /** Themed notice card for error / pending / not-found / submit-error states. */
 function Notice({
   text,
@@ -364,6 +430,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
+    padding: 16,
+  },
+  playerFrame: {
+    aspectRatio: 16 / 9,
+    overflow: 'hidden',
+  },
+  video: {
+    ...StyleSheet.absoluteFillObject,
   },
   playGlyph: {
     width: 56,

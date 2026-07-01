@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { AlertTriangle, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, WandSparkles } from '@lucide/vue'
+import { Album, AlertTriangle, Award, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, Copy, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, Video, WandSparkles } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
 import {
   consoleApi,
   INVITABLE_ROLES,
+  type CertificateListRow,
   type CompletionReport,
   type CourseEnrollment,
   type CreateCourseInput,
   type InvitableRole,
   type TenantMember,
 } from './services/api'
-import type { CourseRow, InvitationRow, LessonRow, ModuleRow } from '@soteria-forge/shared/supabase'
+import type { CourseRow, InvitationRow, LessonRow, ModuleRow, VideoAssetRow } from '@soteria-forge/shared/supabase'
 
 const tenantName = ref('Acme Industrial Services')
 const tenantSlug = computed(() => normalizeTenantSlug(tenantName.value))
@@ -64,8 +65,9 @@ const canManageContent = computed(() =>
 // The console is a single shell; nav items switch which workspace view renders.
 // 'dashboard' is the original all-panels screen (unchanged); 'courses' and
 // 'roster' are the content-authoring + enrollment views (admin-gated);
-// 'reports' is the read-only completion/compliance dashboard (admin-gated).
-type ConsoleView = 'dashboard' | 'courses' | 'roster' | 'reports'
+// 'reports' is the read-only completion/compliance dashboard (admin-gated);
+// 'certificates' is the read-only issued-certificate register (admin-gated).
+type ConsoleView = 'dashboard' | 'courses' | 'roster' | 'reports' | 'certificates'
 const activeView = ref<ConsoleView>('dashboard')
 
 function goTo(view: ConsoleView) {
@@ -76,6 +78,8 @@ function goTo(view: ConsoleView) {
   if (view === 'courses' || view === 'roster') void ensureContentLoaded()
   // The Reports view loads its own RLS-scoped rollup on first open.
   if (view === 'reports') void ensureReportLoaded()
+  // The Certificates view loads its own RLS-scoped list on first open.
+  if (view === 'certificates') void ensureCertificatesLoaded()
 }
 
 // Friendly labels for the stored group-vocabulary invite roles.
@@ -470,6 +474,8 @@ async function openCourse(course: CourseRow) {
     editorLessons.value = tree.lessons
     // Seed one draft per module so the template only reads them (no mutate-on-render).
     for (const module of tree.modules) seedLessonDraft(module.id)
+    // Hydrate the Stream-video link for each video lesson (RLS-scoped reads).
+    for (const lesson of tree.lessons) void loadLessonVideo(lesson)
   } catch (error) {
     contentError.value = error instanceof Error ? error.message : 'Unable to open course'
   }
@@ -480,6 +486,11 @@ function closeCourse() {
   editorModules.value = []
   editorLessons.value = []
   for (const key of Object.keys(lessonDrafts)) delete lessonDrafts[key]
+  // Clear all Stream-video editor state from the closed course.
+  for (const key of Object.keys(videoDrafts)) delete videoDrafts[key]
+  for (const key of Object.keys(lessonVideos)) delete lessonVideos[key]
+  for (const key of Object.keys(videoErrors)) delete videoErrors[key]
+  for (const key of Object.keys(videoSaving)) delete videoSaving[key]
 }
 
 async function addModule() {
@@ -542,6 +553,8 @@ async function addLesson(module: ModuleRow) {
     editorLessons.value = [...editorLessons.value, lesson]
     // Reset this module's draft in place (keeps the reactive binding stable).
     lessonDrafts[module.id] = newLessonDraft()
+    // Seed the Stream-video editor state for a new video lesson.
+    if (lesson.kind === 'video') void loadLessonVideo(lesson)
     status.value = `Added lesson ${lesson.title}`
   } catch (error) {
     contentError.value = error instanceof Error ? error.message : 'Unable to add lesson'
@@ -553,9 +566,81 @@ async function removeLesson(lesson: LessonRow) {
   try {
     await consoleApi.deleteLesson(lesson.id)
     editorLessons.value = editorLessons.value.filter((row) => row.id !== lesson.id)
+    // Drop any Stream-video editor state tied to the removed lesson.
+    delete videoDrafts[lesson.id]
+    delete lessonVideos[lesson.id]
+    delete videoErrors[lesson.id]
     status.value = `Removed lesson ${lesson.title}`
   } catch (error) {
     contentError.value = error instanceof Error ? error.message : 'Unable to remove lesson'
+  }
+}
+
+// ── Stream video registration (video-kind lessons) ─────────────────────────────
+// A tenant-admin links a Cloudflare Stream video to a video lesson. video_assets
+// stores METADATA ONLY (provider + playback/UID + optional MP4 download URL);
+// tenant_id is stamped server-side by a BEFORE INSERT trigger — never sent here.
+// Per-lesson editor state (draft input, current link, inline error) is keyed by
+// lesson id so each video lesson gets its own field.
+type VideoDraft = { playbackId: string; downloadUrl: string }
+const videoDrafts = reactive<Record<string, VideoDraft>>({})
+const lessonVideos = reactive<Record<string, VideoAssetRow | null>>({})
+const videoErrors = reactive<Record<string, string>>({})
+const videoSaving = reactive<Record<string, boolean>>({})
+
+function videoDraftFor(lessonId: string): VideoDraft {
+  return videoDrafts[lessonId] ?? { playbackId: '', downloadUrl: '' }
+}
+
+/**
+ * Seed a video lesson's editor state from its currently-registered Stream asset
+ * (if any). RLS scopes the read to the caller's own tenant. Called on load and
+ * after adding a video lesson — outside render, so the template only reads.
+ */
+async function loadLessonVideo(lesson: LessonRow) {
+  if (lesson.kind !== 'video') return
+  if (!videoDrafts[lesson.id]) videoDrafts[lesson.id] = { playbackId: '', downloadUrl: '' }
+  try {
+    const { video } = await consoleApi.getLessonVideo(lesson.id)
+    lessonVideos[lesson.id] = video
+    if (video) {
+      videoDrafts[lesson.id] = {
+        playbackId: video.playback_id,
+        downloadUrl: video.download_url ?? '',
+      }
+    }
+  } catch (error) {
+    videoErrors[lesson.id] = error instanceof Error ? error.message : 'Unable to load video link'
+  }
+}
+
+/**
+ * Save (register or re-register) the Stream link for a video lesson. No tenant
+ * is sent — the trigger stamps it; RLS re-authorizes the write. Errors surface
+ * inline on that lesson's field.
+ */
+async function saveLessonVideo(lesson: LessonRow) {
+  if (!selectedCourse.value) return
+  videoErrors[lesson.id] = ''
+  const draft = videoDraftFor(lesson.id)
+  const playbackId = draft.playbackId.trim()
+  if (!playbackId) {
+    videoErrors[lesson.id] = 'Paste the Cloudflare Stream playback id / UID.'
+    return
+  }
+  videoSaving[lesson.id] = true
+  try {
+    const { video } = await consoleApi.setLessonVideo(lesson.id, selectedCourse.value.id, {
+      playbackId,
+      downloadUrl: draft.downloadUrl.trim() || undefined,
+    })
+    lessonVideos[lesson.id] = video
+    status.value = `Linked Stream video to ${lesson.title}`
+  } catch (error) {
+    // Surface RLS rejection (non-admin / cross-tenant lesson) and any failure.
+    videoErrors[lesson.id] = error instanceof Error ? error.message : 'Unable to save video link'
+  } finally {
+    videoSaving[lesson.id] = false
   }
 }
 
@@ -730,6 +815,66 @@ function exportWorkerCsv() {
   status.value = 'Exported by-worker report to CSV'
 }
 
+// ── Certificates view (issued-certificate register) ────────────────────────────
+// READ-ONLY. Certificates are auto-issued on course completion by a trigger and
+// are immutable to clients. The list is RLS-scoped to the caller's own tenant
+// (same-tenant supervisor/tenant-admin, or super-admin) — no tenant is ever sent
+// from the UI for authorization; the view just renders the register.
+const certificates = ref<CertificateListRow[]>([])
+const certificatesError = ref('')
+const certificatesLoading = ref(false)
+const certificatesLoaded = ref(false)
+
+async function loadCertificates() {
+  if (!canManageContent.value) {
+    certificates.value = []
+    return
+  }
+  certificatesError.value = ''
+  certificatesLoading.value = true
+  try {
+    const { certificates: rows } = await consoleApi.listCertificates()
+    certificates.value = rows
+  } catch (error) {
+    // Surface RLS/permission or any load error inline instead of crashing.
+    certificatesError.value = error instanceof Error ? error.message : 'Unable to load certificates'
+  } finally {
+    certificatesLoading.value = false
+  }
+}
+
+/** Load the register the first time an admin opens the Certificates view. */
+async function ensureCertificatesLoaded() {
+  if (certificatesLoaded.value || !canManageContent.value) return
+  certificatesLoaded.value = true
+  await loadCertificates()
+}
+
+/** Manual refresh — re-reads the RLS-scoped register on demand. */
+async function refreshCertificates() {
+  status.value = 'Refreshing certificates'
+  await loadCertificates()
+  status.value = `${certificates.value.length} certificate(s)`
+}
+
+/** Copy a certificate number to the clipboard. */
+async function copyCertificateNumber(number: string) {
+  try {
+    await navigator.clipboard?.writeText(number)
+    status.value = `Copied certificate ${number}`
+  } catch {
+    status.value = 'Copy unavailable — select the number to copy it manually'
+  }
+}
+
+/** Short, readable date for a certificate's issued/expiry timestamp. */
+function formatDate(iso: string | null): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 onMounted(async () => {
   // Restore any persisted Supabase session (auth.persistSession) instead of a
   // localStorage bearer token. RLS re-derives the tenant from the session.
@@ -762,6 +907,7 @@ onMounted(async () => {
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'courses' }" type="button" @click="goTo('courses')"><GraduationCap :size="18" /> Courses</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'roster' }" type="button" @click="goTo('roster')"><Users :size="18" /> Roster &amp; Enrollment</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'reports' }" type="button" @click="goTo('reports')"><BarChart3 :size="18" /> Reports</button>
+        <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'certificates' }" type="button" @click="goTo('certificates')"><Award :size="18" /> Certificates</button>
         <button v-if="canProvisionTenant" type="button"><Rocket :size="18" /> Provision Tenant</button>
         <button v-if="canInvite" type="button"><UserPlus :size="18" /> Invite Users</button>
         <button type="button"><RadioTower :size="18" /> Sync Health</button>
@@ -1140,13 +1286,58 @@ onMounted(async () => {
             </div>
 
             <div class="content-lessons">
-              <div v-for="lesson in lessonsForModule(module.id)" :key="lesson.id" class="content-lesson-row">
-                <ListChecks :size="14" aria-hidden="true" />
-                <span class="content-lesson-title">{{ lesson.title }}</span>
-                <small>{{ lesson.kind }} · {{ lesson.duration_minutes }}m{{ lesson.required ? ' · required' : '' }}</small>
-                <button class="content-icon-btn" type="button" title="Remove lesson" @click="removeLesson(lesson)">
-                  <Trash2 :size="14" aria-hidden="true" />
-                </button>
+              <div v-for="lesson in lessonsForModule(module.id)" :key="lesson.id" class="content-lesson">
+                <div class="content-lesson-row">
+                  <ListChecks :size="14" aria-hidden="true" />
+                  <span class="content-lesson-title">{{ lesson.title }}</span>
+                  <small>{{ lesson.kind }} · {{ lesson.duration_minutes }}m{{ lesson.required ? ' · required' : '' }}</small>
+                  <button class="content-icon-btn" type="button" title="Remove lesson" @click="removeLesson(lesson)">
+                    <Trash2 :size="14" aria-hidden="true" />
+                  </button>
+                </div>
+
+                <!-- Stream video field (video-kind lessons only). Paste the
+                     Cloudflare playback/UID + optional MP4 download URL. No
+                     tenant is sent — the trigger stamps it server-side. -->
+                <div v-if="lesson.kind === 'video'" class="content-video">
+                  <div class="content-video-head">
+                    <Video :size="14" aria-hidden="true" />
+                    <span>Stream video</span>
+                    <small v-if="lessonVideos[lesson.id]" class="content-video-linked">Linked</small>
+                    <small v-else class="content-video-unlinked">Not linked</small>
+                  </div>
+                  <div class="content-video-fields">
+                    <input
+                      v-model="videoDraftFor(lesson.id).playbackId"
+                      type="text"
+                      placeholder="Playback id / UID (e.g. 31c9291ab41f…)"
+                      autocomplete="off"
+                      aria-label="Cloudflare Stream playback id"
+                    />
+                    <input
+                      v-model="videoDraftFor(lesson.id).downloadUrl"
+                      type="url"
+                      placeholder="MP4 download URL (optional)"
+                      autocomplete="off"
+                      aria-label="MP4 download URL"
+                    />
+                    <button
+                      class="primary-action content-video-save"
+                      type="button"
+                      :disabled="videoSaving[lesson.id]"
+                      @click="saveLessonVideo(lesson)"
+                    >
+                      <Video :size="16" aria-hidden="true" />
+                      {{ videoSaving[lesson.id] ? 'Saving…' : 'Save Video' }}
+                    </button>
+                  </div>
+                  <p class="content-video-hint">
+                    Paste the video's <strong>playback id / UID</strong> from the Cloudflare Stream
+                    dashboard (Stream → your video → Settings). See docs/OPERATIONS.md. Metadata only —
+                    no bytes are stored.
+                  </p>
+                  <p v-if="videoErrors[lesson.id]" class="content-error" role="alert">{{ videoErrors[lesson.id] }}</p>
+                </div>
               </div>
             </div>
 
@@ -1377,6 +1568,65 @@ onMounted(async () => {
                 <span class="report-feed-object">{{ item.objectLabel }}</span>
               </span>
               <small class="report-feed-time"><Clock :size="12" aria-hidden="true" /> {{ relativeTime(item.occurredAt) }}</small>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <!-- ── Certificates view (issued-certificate register) ──────────────── -->
+      <template v-if="activeView === 'certificates' && isLoggedIn && canManageContent">
+        <section class="content-panel panel">
+          <div class="report-head">
+            <div>
+              <h2>Certificates</h2>
+              <p class="content-hint">
+                Certificates auto-issued on course completion. Read-only; scoped to your tenant
+                server-side (RLS).
+              </p>
+            </div>
+            <button class="secondary-action report-refresh" type="button" :disabled="certificatesLoading" @click="refreshCertificates">
+              <RefreshCw :size="16" aria-hidden="true" />
+              {{ certificatesLoading ? 'Refreshing…' : 'Refresh' }}
+            </button>
+          </div>
+          <p v-if="certificatesError" class="content-error" role="alert">{{ certificatesError }}</p>
+        </section>
+
+        <section class="tenant-list panel">
+          <h2>Issued certificates</h2>
+          <p v-if="certificatesLoading && !certificates.length" class="content-empty">Loading certificates…</p>
+          <p v-else-if="!certificates.length" class="content-empty">No certificates issued yet.</p>
+          <div v-else class="cert-table" role="table" aria-label="Issued certificates">
+            <div class="cert-row cert-row--head" role="row">
+              <span role="columnheader">Certificate #</span>
+              <span role="columnheader">Worker</span>
+              <span role="columnheader">Course</span>
+              <span role="columnheader">Issued</span>
+            </div>
+            <div v-for="cert in certificates" :key="cert.id" class="cert-row" role="row">
+              <span class="cert-number" role="cell">
+                <button
+                  class="cert-copy"
+                  type="button"
+                  :title="`Copy certificate number: ${cert.certificate_number}`"
+                  @click="copyCertificateNumber(cert.certificate_number)"
+                >
+                  <Album :size="14" aria-hidden="true" />
+                  <code>{{ cert.certificate_number }}</code>
+                  <Copy :size="13" aria-hidden="true" />
+                </button>
+              </span>
+              <span class="cert-cell-name" role="cell">
+                <span class="cert-worker">
+                  <span class="cert-worker-name">{{ cert.workerName }}</span>
+                  <small v-if="cert.workerEmail" class="cert-worker-email">{{ cert.workerEmail }}</small>
+                </span>
+              </span>
+              <span class="cert-course" role="cell">
+                <GraduationCap :size="14" aria-hidden="true" />
+                {{ cert.courseTitle }}
+              </span>
+              <span class="cert-date" role="cell">{{ formatDate(cert.issued_at) }}</span>
             </div>
           </div>
         </section>

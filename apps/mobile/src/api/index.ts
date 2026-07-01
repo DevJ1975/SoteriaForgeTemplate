@@ -14,3 +14,11 @@ export type {
   UseLessonResult,
   LessonDetail,
 } from './courseTree';
+export { useCertificates, useCertificate } from './certificates';
+export type {
+  CertificateRecord,
+  UseCertificatesResult,
+  UseCertificateResult,
+} from './certificates';
+export { useLessonVideo } from './videoPlayback';
+export type { LessonVideoSource, VideoSourceStatus } from './videoPlayback';

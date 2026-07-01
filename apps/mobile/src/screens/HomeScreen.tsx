@@ -29,7 +29,7 @@ import {
 } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useAuth } from '../auth';
-import { useCourses } from '../api';
+import { useCourses, useCertificates } from '../api';
 
 export function HomeScreen() {
   const theme = useTheme();
@@ -38,6 +38,9 @@ export function HomeScreen() {
   // Tenant-scoped by construction (bound to the verified tenantId inside the
   // hook). Drives the readiness KPIs below.
   const { courses, backendPending } = useCourses();
+  // The learner's earned certificates (RLS-scoped, owner-only) — drives the
+  // "My Certificates" Home affordance count.
+  const { certificates } = useCertificates();
 
   if (!user) return null;
 
@@ -194,6 +197,44 @@ export function HomeScreen() {
           sublabel={readinessPct < 50 ? 'Reach 50%' : 'Unlocked'}
         />
       </View>
+
+      {/* My Certificates — a shortcut to the earned-certificates list. */}
+      <Card>
+        <View style={styles.readinessHeader}>
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontFamily: theme.fonts.display,
+              fontWeight: '600',
+              fontSize: 18,
+            }}
+          >
+            My Certificates
+          </Text>
+          {certificates.length > 0 ? (
+            <Badge label={`${certificates.length}`} tone="success" />
+          ) : null}
+        </View>
+        <Text
+          style={{
+            color: theme.colors.textMuted,
+            fontFamily: theme.fonts.body,
+            fontSize: 13,
+            marginTop: 8,
+          }}
+        >
+          {certificates.length > 0
+            ? 'View and share the certificates you’ve earned.'
+            : 'Finish a course to earn your first certificate.'}
+        </Text>
+        <Divider spacing={16} />
+        <Button
+          title="View my certificates"
+          variant="secondary"
+          fullWidth
+          onPress={() => router.push('/(app)/certificates')}
+        />
+      </Card>
 
       <Button title="Sign out" variant="ghost" onPress={() => void signOut()} />
     </Screen>
