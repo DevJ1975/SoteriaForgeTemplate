@@ -21,13 +21,13 @@ export interface ScreenProps {
 export function Screen({ children, scroll = true, contentStyle }: ScreenProps) {
   const theme = useTheme();
   const body = (
-    <View style={[styles.body, { padding: theme.spacing[5] }, contentStyle]}>{children}</View>
+    <View style={[styles.body, { padding: theme.spacing.xl }, contentStyle]}>{children}</View>
   );
 
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
-      style={[styles.root, { backgroundColor: theme.colors.bg.base }]}
+      style={[styles.root, { backgroundColor: theme.colors.bg }]}
     >
       <OfflineBanner />
       {scroll ? (

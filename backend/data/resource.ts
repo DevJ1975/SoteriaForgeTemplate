@@ -1,5 +1,7 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend'
 import { tenantAuthorizer } from '../functions/tenant-authorizer/resource.js'
+import { tenantStamp } from '../functions/tenant-stamp/resource.js'
+import { mediaUrl } from '../functions/media-url/resource.js'
 
 /**
  * Code-first data layer for the AWS-era Soteria Forge platform.
@@ -63,12 +65,24 @@ import { tenantAuthorizer } from '../functions/tenant-authorizer/resource.js'
  *   the `lambda` auth mode. The row-level isolation above does not depend on it.
  *   See data/tenant-isolation.md.
  *
- * RESIDUAL / TRACKED FOLLOW-UP:
- *   `adminGroup` MUST be stamped consistent with `tenantId` (adminGroup ===
- *   'admin::' + tenantId) by the create resolver / a custom mutation pre-hook so
- *   the two can never diverge. AppSync already prevents a caller from writing a
- *   row whose adminGroup is a group they do not hold; server-side stamping to
- *   keep adminGroup ≡ tenantId is a tracked follow-up.
+ * SERVER-SIDE TENANT STAMP (residual now CLOSED):
+ *   `tenantId` and `adminGroup` are stamped SERVER-SIDE from the caller's verified
+ *   `custom:tenantId` claim by the `create*Stamped` custom mutations (backed by
+ *   the `tenant-stamp` Lambda). Admin authoring + roster changes go through those
+ *   mutations, whose handler OVERWRITES both fields via the shared
+ *   `stampTenantOwnership` logic (adminGroup === 'admin::' + tenantId), discarding
+ *   any client-supplied values and rejecting a create with no verified tenant.
+ *   The two isolation fields can therefore never be client-forged or diverge.
+ *   (The raw auto-generated `create*` mutations still exist; production clients
+ *   call the `*Stamped` variants — the models' `adminGroup` write gate means a
+ *   direct `create*` still cannot forge another tenant's row, but only the stamp
+ *   guarantees tenantId ≡ adminGroup.)
+ *
+ * OBJECT-LEVEL (S3) TENANT BOUNDARY (residual now CLOSED):
+ *   `getMediaUrl(key, op)` (backed by the `media-url` Lambda) mints a short-lived
+ *   pre-signed S3 URL only after proving the requested `media/<kind>/<tenantId>/…`
+ *   key belongs to the caller's verified tenant. That mint — not static S3 path
+ *   rules — is the enforced object-level boundary. See storage/resource.ts.
  *
  * DEFAULT AUTH MODE = userPool. No apiKey/public access anywhere.
  */
@@ -438,6 +452,97 @@ const schema = a
         allow.groupDefinedIn('adminGroup').to(['create', 'update', 'delete']),
         allow.group('super-admin'),
       ]),
+
+    // =====================================================================
+    // CUSTOM OPERATIONS
+    // =====================================================================
+
+    // ---------------------------------------------------------------------
+    // Server-side tenant STAMP — create*Stamped mutations (residual CLOSED).
+    //
+    // These are the WRITE path admin/roster clients use instead of the raw
+    // auto-generated `create*`. Each is backed by the `tenant-stamp` Lambda,
+    // which reads the caller's VERIFIED `custom:tenantId` from
+    // `event.identity.claims` and OVERWRITES `tenantId` + `adminGroup` on the
+    // input (adminGroup === 'admin::' + tenantId) BEFORE persisting — so those
+    // two isolation fields are never client-supplied and can never diverge.
+    //
+    // `input` is `a.json()`: the model's create fields. Any `tenantId`/
+    // `adminGroup` inside it are IGNORED (the stamp is authoritative). The handler
+    // routes to the target model by its own resolver field NAME
+    // (`event.info.fieldName`, a server value) — never a client argument — so a
+    // caller cannot redirect the create to another model. The stamp rejects a
+    // create with no verified tenant (fail closed).
+    //
+    // NOTE: authorization here only gates WHO may call the mutation; WHICH tenant
+    // the row lands in is decided solely by the server-side stamp from the claim.
+    // ---------------------------------------------------------------------
+    createTenantStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('Tenant'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+    createUserStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('User'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+    createCourseStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('Course'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+    createModuleStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('Module'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+    createLessonStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('Lesson'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+    createEnrollmentStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('Enrollment'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+    createVideoAssetStamped: a
+      .mutation()
+      .arguments({ input: a.json().required() })
+      .returns(a.ref('VideoAsset'))
+      .authorization((allow) => [allow.group('tenant-admin'), allow.group('super-admin')])
+      .handler(a.handler.function(tenantStamp)),
+
+    // ---------------------------------------------------------------------
+    // Tenant-checked S3 signed-URL MINT — getMediaUrl (residual CLOSED).
+    //
+    // The ENFORCED object-level tenant boundary. Backed by the `media-url`
+    // Lambda, which reads the caller's VERIFIED `custom:tenantId` from
+    // `event.identity.claims`, parses the requested `media/<kind>/<tenantId>/…`
+    // key, and REFUSES to sign unless the key's tenant equals the caller's
+    // verified tenant (mismatch OR unparseable key ⇒ deny). Returns a
+    // short-lived pre-signed GET/PUT URL for that ONE object. userPool auth: any
+    // authenticated member may ASK, but the mint only signs objects their own
+    // verified tenant owns — so the grant carries no cross-tenant power.
+    // ---------------------------------------------------------------------
+    getMediaUrl: a
+      .query()
+      .arguments({ key: a.string().required(), op: a.string().required() })
+      .returns(a.customType({
+        url: a.string().required(),
+        key: a.string().required(),
+        op: a.string().required(),
+        expiresInSeconds: a.integer().required(),
+      }))
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.function(mediaUrl)),
   })
   // Make the Lambda authorizer available as a `lambda` authorization MODE so that
   // future CUSTOM operations (e.g. a tenant-checked signed-URL mint / offline-sync
@@ -446,7 +551,15 @@ const schema = a
   // it cannot do row-level tenant filtering. ROW-LEVEL tenant isolation on the
   // models above is enforced by `groupDefinedIn('tenantId')` + owner rules; this
   // authorizer binding does not participate in those model reads/writes.
-  .authorization((allow) => [allow.resource(tenantAuthorizer)])
+  //
+  // `allow.resource(tenantStamp)` grants the STAMP resolver IAM access to the API
+  // so its handler can persist the stamped row via the Amplify data client. The
+  // stamp is what pins the row to the caller's verified tenant; this grant is the
+  // function's data-plane permission, not a relaxation of the model gates.
+  .authorization((allow) => [
+    allow.resource(tenantAuthorizer),
+    allow.resource(tenantStamp),
+  ])
 
 export type Schema = ClientSchema<typeof schema>
 

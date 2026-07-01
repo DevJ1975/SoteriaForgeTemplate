@@ -29,11 +29,13 @@ row's own `tenantId`**, evaluated by AppSync per row:
 
 | Layer | File | What it does |
 |------|------|--------------|
-| **Field** | `data/resource.ts` | Every model carries a required `tenantId` (the partition owner, `PK = TENANT#<tenantId>`). Admin-authored models + roster/assignment models also carry `adminGroup`. Create resolvers stamp both from the verified claim; they are never trusted from the client. |
+| **Field** | `data/resource.ts` | Every model carries a required `tenantId` (the partition owner, `PK = TENANT#<tenantId>`). Admin-authored models + roster/assignment models also carry `adminGroup`. The `create*Stamped` custom mutations stamp both from the verified claim (see below); they are never trusted from the client. |
 | **Row-level READ gate** | `data/resource.ts` | Every model has `allow.groupDefinedIn('tenantId').to(['read'])`: the record's `tenantId` value must be one of the caller's `cognito:groups`. A caller's groups only ever contain their **own** tenantId, so cross-tenant reads are impossible. |
 | **Tenant-scoped WRITE gate** | `data/resource.ts` | Admin-authored models (Tenant/Course/Module/Lesson/VideoAsset) and roster/assignment models (User/Enrollment) grant `create/update/delete` via `allow.groupDefinedIn('adminGroup')`, where `adminGroup == 'admin::' + tenantId`. Only a tenant's **own** admins hold that group, so cross-tenant writes are impossible. This replaces the tenant-**blind** `allow.group('tenant-admin')`. |
 | **Owner rules** | `data/resource.ts` | `allow.ownerDefinedIn('userId').identityClaim('sub')` — User read-own, Enrollment read/update-own, CompletionStatement create+read-own. Tenant-safe because a user only ever owns their own rows. |
-| **Shared guard (custom ops)** | `packages/shared/src/tenant.ts` | The canonical `assertTenantMatch` / `isSameTenant`: strict verbatim equality, empty ⇒ deny, no normalization, no wildcard, **no super-admin bypass**. Used by the Lambda authorizer for custom operations (below). |
+| **Shared guard (custom ops)** | `packages/shared/src/tenant.ts` | The canonical `assertTenantMatch` / `isSameTenant` / `stampTenantOwnership`: strict verbatim equality, empty ⇒ deny, no normalization, no wildcard, **no super-admin bypass**. Mirrored by the Lambda authorizer, the tenant stamp, and the media-URL mint. |
+| **Create-time STAMP** | `functions/tenant-stamp/` + `data/resource.ts` | `create*Stamped` mutations stamp `tenantId` + `adminGroup` from the verified `custom:tenantId` claim, discarding client values (see "Server-side tenant STAMP" below). |
+| **S3 signed-URL MINT** | `functions/media-url/` + `data/resource.ts` | `getMediaUrl(key, op)` refuses to sign unless the `media/<kind>/<tenantId>/…` key's tenant equals the verified claim (see "Object-layer (S3) isolation" below). |
 
 ## The Lambda authorizer is DEFENSE-IN-DEPTH for custom ops — NOT the model gate
 
@@ -74,23 +76,58 @@ owner creates+reads their own; same-tenant supervisors/admins read via
 group, and no `adminGroup` write rule** — statements are immutable. There is no
 conflict resolution and none is needed. See `packages/shared/src/xapi.ts`.
 
-## Object-layer (S3) isolation — via a tenant-checked signed-URL mint
+## Server-side tenant STAMP — `create*Stamped` custom mutations (CLOSED)
+
+`tenantId` and `adminGroup` are the two fields the read gate
+(`groupDefinedIn('tenantId')`) and the write gate (`groupDefinedIn('adminGroup')`)
+key on. A client must never set them. They are stamped **server-side** by the
+`create*Stamped` custom mutations (`createTenantStamped`, `createUserStamped`,
+`createCourseStamped`, `createModuleStamped`, `createLessonStamped`,
+`createEnrollmentStamped`, `createVideoAssetStamped` in `data/resource.ts`),
+backed by the **`tenant-stamp` Lambda** (`functions/tenant-stamp/`):
+
+- The handler reads the caller's tenant ONLY from AppSync's VERIFIED
+  `event.identity.claims['custom:tenantId']` — never from the request input.
+- `applyTenantStamp(callerTenant, input)` (a byte-for-byte mirror of
+  `@soteria-forge/shared` `stampTenantOwnership`) OVERWRITES `tenantId` and
+  `adminGroup` (`admin::<tenantId>`) on the create input, discarding any
+  client-supplied values, so the two can **never diverge or be forged**.
+- A create with **no** verified tenant claim throws `TenantIsolationError`
+  (fail closed) — nothing is written.
+
+The raw auto-generated `create*` mutations still exist and are still safe against
+cross-tenant WRITE (the `adminGroup` write gate blocks a row whose group the
+caller does not hold); the stamp adds the guarantee that `tenantId ≡ adminGroup`
+and that neither is client-controlled. Production admin/roster clients call the
+`*Stamped` variants. The pure stamp logic lives in
+`functions/tenant-stamp/tenant-stamp.ts` (no AWS imports) so it is unit-testable.
+
+## Object-layer (S3) isolation — via a tenant-checked signed-URL mint (CLOSED)
 
 Static S3 path rules **cannot** express per-tenant object isolation (there is no
 `{tenantId}` placeholder bound to `custom:tenantId`; `{entity_id}` is the
 per-**user** identity, not the tenant). `storage/resource.ts` therefore grants
 only coarse least-privilege capabilities (authenticated read; tenant-admin
-author) and defers WHICH-tenant enforcement to a **tenant-checked signed-URL
-mint** — a Lambda that verifies the caller's `custom:tenantId` owns the requested
-key before returning a short-lived pre-signed URL. That mint is the enforced
-production object boundary (tracked follow-up).
+author) and enforces WHICH-tenant at a **tenant-checked signed-URL mint**: the
+`getMediaUrl(key, op)` custom query (`data/resource.ts`) backed by the
+**`media-url` Lambda** (`functions/media-url/`):
+
+- The handler reads the caller's tenant ONLY from the VERIFIED
+  `event.identity.claims['custom:tenantId']` (with a defense-in-depth fallback
+  that VERIFIES a forwarded ID token) — never from the request key/args/headers.
+- `assertKeyTenant(callerTenant, key)` (pure logic in `media-url/key-tenant.ts`,
+  a byte-for-byte mirror of `assertTenantMatch`) parses the requested
+  `media/<kind>/<tenantId>/…` key and **refuses to sign** unless the key's tenant
+  segment equals the caller's verified tenant. A mismatch OR an unparseable /
+  traversal-y key yields a null target ⇒ deny (empty ⇒ deny). No URL is signed on
+  refusal.
+- Only after the match succeeds does it return a short-lived (300s) pre-signed
+  GET/PUT URL for that ONE object. The pure parse+assert logic is AWS-free and
+  unit-testable.
+
+That mint — NOT the static S3 paths — is the enforced production object boundary.
 
 ## Residual / tracked follow-ups
 
-- **`adminGroup` ≡ `tenantId` stamping.** AppSync already prevents a caller from
-  writing a row whose `adminGroup` is a group they do not hold; keeping
-  `adminGroup == 'admin::' + tenantId` server-side (create resolver / custom
-  mutation pre-hook) so the two can never diverge is a tracked follow-up.
-- **S3 signed-URL mint.** The tenant-checked signed-URL Lambda described above.
 - **Intra-tenant role granularity.** Finer-grained supervisor-vs-admin write
   scoping within a tenant (beyond the current admin-group write gate).

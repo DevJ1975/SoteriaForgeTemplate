@@ -1,20 +1,26 @@
 {
+  // Editor / IDE config only. @soteria-forge/ui ships React Native SOURCE
+  // (`main` -> src/index.ts) and is consumed directly by the app's Metro bundler
+  // + Babel — there is no `dist/`. A standalone `tsc` build is NOT expected here:
+  // the components import `react-native` / `react-native-svg`, whose type
+  // declarations live in the consuming app's node_modules (apps/mobile), not in
+  // this package. `typecheck` runs with skipLibCheck for a light editor pass; the
+  // authoritative type-check happens in apps/mobile against the real RN types.
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
+    "types": [],
+    "noEmit": true,
+    "declaration": false,
     "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true
   },
   "include": ["src"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["node_modules", "preview"]
 }

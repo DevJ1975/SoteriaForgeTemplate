@@ -16,9 +16,11 @@ data SHAPE. See root `../CLAUDE.md` for the shared contract.
 | `backend.ts` | Composition (`defineBackend`) + feeds pool id/client id to the authorizer. |
 | `auth/resource.ts` | Single Cognito pool (Lite tier), immutable `custom:tenantId`, groups, trigger. |
 | `data/resource.ts` | Code-first `a.schema(...)` models, secondary indexes, auth rules. |
-| `storage/resource.ts` | S3 for binary assets; `private/{entity_id}/*` (per-user) + coarse `media/*` grants. Object-level tenant isolation is a signed-URL mint (follow-up). |
+| `storage/resource.ts` | S3 for binary assets; `private/{entity_id}/*` (per-user) + coarse `media/*` grants. Object-level tenant isolation is the `getMediaUrl` signed-URL mint (`functions/media-url`), NOT static paths. |
 | `functions/tenant-authorizer/handler.ts` | The Lambda authorizer — defense-in-depth for CUSTOM ops, NOT the model gate. |
 | `functions/tenant-authorizer/pre-token-generation.ts` | Echoes `custom:tenantId` into claims AND injects the tenant into `cognito:groups` for row-level auth. |
+| `functions/tenant-stamp/` | Server-side STAMP resolver behind the `create*Stamped` mutations — sets `tenantId` + `adminGroup` from the verified claim. |
+| `functions/media-url/` | Tenant-checked S3 signed-URL mint behind `getMediaUrl(key, op)` — the enforced object-level boundary. |
 | `data/tenant-isolation.md` | The canonical reviewer's map of where isolation is enforced. |
 
 ## Tenant isolation (ROW-LEVEL, enforced by AppSync)
@@ -77,15 +79,18 @@ non-Authorization headers to authorize.
   enrollments-by-user, statements-by-user, users-by-tenant** (plus modules-by-course,
   lessons-by-module, enrollments-by-course, videos-by-tenant).
 - **`adminGroup` field** on admin-authored + roster/assignment models (Tenant/Course/Module/
-  Lesson/VideoAsset/User/Enrollment) drives the tenant-scoped write gate. MUST be stamped
-  `admin::<tenantId>` consistent with `tenantId` by the create resolver (tracked follow-up).
+  Lesson/VideoAsset/User/Enrollment) drives the tenant-scoped write gate. Stamped
+  `admin::<tenantId>` consistent with `tenantId` by the `create*Stamped` mutations
+  (`functions/tenant-stamp`), which read the verified `custom:tenantId` claim and OVERWRITE both
+  fields server-side so they can never be client-supplied or diverge.
 - **`CompletionStatement` is append-only + idempotent.** `id` = client-generated UUID =
   identifier ⇒ re-sends dedupe on the primary key. Grant only `create` + `read` — **never**
   `update`/`delete` to ANY group, and **no `adminGroup` write rule** (super-admin is deliberately
   read-only here). Same-tenant supervisors/admins read via `groupDefinedIn('tenantId')`.
 - **`VideoAsset` is METADATA ONLY.** It references a provider handle / storage key; the bytes
-  live in S3 under `media/videos/*`. DynamoDB never stores media. Per-tenant object isolation is
-  enforced by a tenant-checked signed-URL mint (see `storage/resource.ts`), not by static S3 paths.
+  live in S3 under `media/videos/<tenantId>/*`. DynamoDB never stores media. Per-tenant object
+  isolation is enforced by the `getMediaUrl` tenant-checked signed-URL mint (`functions/media-url`;
+  see `storage/resource.ts`), not by static S3 paths.
 
 ## Local workflow
 

@@ -14,7 +14,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["backend.ts", "auth/**/*.ts", "data/**/*.ts", "storage/**/*.ts", "functions/**/*.ts"],
   "exclude": ["node_modules", ".amplify"]

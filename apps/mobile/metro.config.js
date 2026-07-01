@@ -10,10 +10,11 @@
  *   3. Prefer a single copy of React / React Native so the workspace packages
  *      don't pull in a duplicate and break the renderer.
  *
- * The workspace packages (@soteria-forge/shared, @soteria-forge/ui) are plain
- * TS compiled to `dist/`; Metro resolves them through their package `exports`
- * like any other dependency — no symlink gymnastics required beyond the
- * watchFolders + nodeModulesPaths below.
+ * The workspace packages resolve through their package `main`/`exports` like any
+ * other dependency — no symlink gymnastics beyond the watchFolders +
+ * nodeModulesPaths below. `@soteria-forge/shared` is plain TS compiled to
+ * `dist/`; `@soteria-forge/ui` is React Native SOURCE (`main` -> src/index.ts),
+ * transpiled directly by Metro/Babel (its .tsx is authored against RN + SVG).
  */
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');

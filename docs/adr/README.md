@@ -19,6 +19,7 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
 | [0003](./0003-single-pool-multitenancy.md) | Single Cognito pool + `custom:tenantId` + single-table DynamoDB | Accepted |
 | [0004](./0004-turborepo-monorepo.md) | Turborepo over plain npm workspaces | Accepted |
 | [0005](./0005-video-cloudflare-stream.md) | Cloudflare Stream for video; DynamoDB stores metadata only | Accepted |
+| [0006](./0006-adopt-soteria-forge-ui-kit.md) | Adopt the Soteria Forge UI kit as `packages/ui` (mobile) | Accepted |
 
 ## How these relate
 
@@ -34,6 +35,10 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
   `backend`, and the shared packages share one type/tenant contract.
 - **0005** keeps video bytes out of AWS entirely and out of DynamoDB
   specifically — DynamoDB holds only `VideoAsset` metadata.
+- **0006** makes `packages/ui` a real cross-platform RN component kit for
+  `apps/mobile`. Note the **open brand divergence** it records: mobile is now
+  ember/spark while `apps/console` + the root `CLAUDE.md` stay Ink/Bone/Cobalt —
+  an owner decision (rebrand console, or re-skin the kit) left unresolved.
 
 ## Status values
 

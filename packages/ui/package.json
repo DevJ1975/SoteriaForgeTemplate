@@ -2,26 +2,22 @@
   "name": "@soteria-forge/ui",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "description": "Soteria Forge cross-platform React Native component library (ember/spark, Oswald/Barlow).",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./tokens.css": "./src/tokens.css"
+    ".": "./src/index.ts"
   },
   "files": [
-    "dist",
-    "src/tokens.css"
-  ],
-  "sideEffects": [
-    "*.css"
+    "src"
   ],
   "scripts": {
-    "build": "tsc",
     "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-native": ">=0.76",
+    "react-native-svg": ">=15"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

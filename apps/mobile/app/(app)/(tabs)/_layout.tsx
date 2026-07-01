@@ -1,8 +1,8 @@
 /**
- * Tabs layout — the primary signed-in navigation: Home + Courses.
+ * Tabs layout — the primary signed-in navigation: Home + Courses + Showcase.
  *
- * Tab colors are pulled from the theme (brand blue for the active tab) so the
- * chrome matches the @soteria-forge/ui token set.
+ * Tab colors are pulled from the flat @soteria-forge/ui theme (brand ember for
+ * the active tab) so the chrome matches the kit's design language.
  */
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
@@ -19,14 +19,14 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.bg.base },
-        headerTintColor: theme.colors.text.primary,
+        headerStyle: { backgroundColor: theme.colors.bg },
+        headerTintColor: theme.colors.text,
         headerShadowVisible: false,
-        tabBarActiveTintColor: theme.colors.brand.blue,
-        tabBarInactiveTintColor: theme.colors.text.muted,
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.textMuted,
         tabBarStyle: {
-          backgroundColor: theme.colors.bg.surface,
-          borderTopColor: theme.colors.border.subtle,
+          backgroundColor: theme.colors.surface,
+          borderTopColor: theme.colors.border,
         },
       }}
     >
@@ -42,6 +42,13 @@ export default function TabsLayout() {
         options={{
           title: 'Courses',
           tabBarIcon: ({ color }) => <TabGlyph glyph="▤" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="showcase"
+        options={{
+          title: 'Showcase',
+          tabBarIcon: ({ color }) => <TabGlyph glyph="◆" color={color} />,
         }}
       />
     </Tabs>

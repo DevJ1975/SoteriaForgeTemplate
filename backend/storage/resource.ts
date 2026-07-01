@@ -33,15 +33,19 @@ import { defineStorage } from '@aws-amplify/backend'
  * and `{entity_id}` is per-user, not per-tenant. There is no `{tenantId}`
  * placeholder bound to the verified `custom:tenantId` claim.
  *
- * >>> ENFORCED PRODUCTION PATH (tracked follow-up): a TENANT-CHECKED SIGNED-URL
- * >>> MINT. A Lambda (guarded by the tenant-authorizer / verifying the caller's
- * >>> `custom:tenantId`) confirms the requested object key belongs to the
- * >>> caller's tenant BEFORE returning a short-lived pre-signed GET/PUT URL.
- * >>> Clients never receive broad S3 access; they receive per-object signed URLs
- * >>> only for objects their verified tenant owns. That mint — NOT these static
- * >>> rules — is the load-bearing object-level tenant boundary. The rules below
- * >>> are coarse capability grants (who may author vs. read at all), sized for
- * >>> LEAST PRIVILEGE; the signed-URL mint enforces WHICH tenant's object.
+ * >>> ENFORCED PRODUCTION PATH (IMPLEMENTED): a TENANT-CHECKED SIGNED-URL MINT.
+ * >>> The `getMediaUrl(key, op)` AppSync custom query — backed by the `media-url`
+ * >>> Lambda (functions/media-url/{handler,key-tenant}.ts) — reads the caller's
+ * >>> VERIFIED `custom:tenantId` from `event.identity.claims`, parses the
+ * >>> requested `media/<kind>/<tenantId>/…` key, and REFUSES to sign unless the
+ * >>> key's tenant segment equals the caller's verified tenant (mismatch OR an
+ * >>> unparseable key ⇒ deny). Only then does it return a short-lived pre-signed
+ * >>> GET/PUT URL for that ONE object. Clients never receive broad S3 access; the
+ * >>> mint hands out per-object signed URLs only for objects their verified tenant
+ * >>> owns. That mint — NOT these static rules — is the LOAD-BEARING object-level
+ * >>> tenant boundary. The rules below are coarse capability grants (who may
+ * >>> author vs. read at all), sized for LEAST PRIVILEGE; the mint enforces WHICH
+ * >>> tenant's object. See data/resource.ts (`getMediaUrl`) + data/tenant-isolation.md.
  */
 export const storage = defineStorage({
   name: 'soteriaForgeAssets',
@@ -61,9 +65,13 @@ export const storage = defineStorage({
     //   - authenticated callers may READ only (workers watch/download).
     //   - tenant-admin may read/write/delete (authoring the tenant's library).
     // These grants are tenant-BLIND on their own (see header) — object-level
-    // per-tenant isolation is enforced by the tenant-checked SIGNED-URL MINT,
-    // not by these paths. Workers no longer get write/delete on media (the prior
-    // catch-all granted every identity delete on a tenant's videos — removed).
+    // per-tenant isolation is enforced by the tenant-checked SIGNED-URL MINT
+    // (`getMediaUrl` → the `media-url` Lambda), which proves the requested
+    // `media/<kind>/<tenantId>/…` key belongs to the caller's verified tenant
+    // before signing. These static paths are the coarse capability floor; the
+    // mint is WHICH-tenant enforcement. Workers no longer get write/delete on
+    // media (the prior catch-all granted every identity delete on a tenant's
+    // videos — removed).
     // -----------------------------------------------------------------------
     'media/videos/*': [
       allow.authenticated().to(['read']),

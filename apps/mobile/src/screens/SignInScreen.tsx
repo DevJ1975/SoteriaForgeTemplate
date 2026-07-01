@@ -8,29 +8,45 @@
  *
  * Enterprise SSO (per-tenant SAML/OIDC federated into the one pool) is deferred;
  * a placeholder affordance documents where the hosted-UI redirect will go.
+ *
+ * Re-skinned on the @soteria-forge/ui kit: the Forged-Shield Logo, kit TextField
+ * (with a tap-to-reveal password adornment + email keyboard), a primary kit
+ * Button, and sign-in errors surfaced both inline (field helper text) and via
+ * the kit Toast snackbar. All colour/type flows through useTheme() tokens — no
+ * hardcoded brand hex.
  */
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Button, Logo, TextField, useTheme, useToast } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useAuth, isAmplifyConfigured } from '../auth';
-import { useTheme } from '../theme';
 
 export function SignInScreen() {
   const theme = useTheme();
+  const toast = useToast();
   const { signIn, error } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const backendReady = isAmplifyConfigured();
+
+  // Surface auth errors from useAuth() as a transient snackbar in addition to
+  // the inline field helper, so a failure is noticed even off-screen.
+  useEffect(() => {
+    if (error) toast(error, { type: 'danger' });
+  }, [error, toast]);
 
   const onSubmit = async () => {
     if (!email || !password || submitting) return;
     setSubmitting(true);
     try {
+      // Tenancy is NOT collected here — only username/password. The verified
+      // custom:tenantId claim is projected by AuthProvider after this resolves.
       await signIn({ username: email.trim(), password });
     } catch {
-      // error surfaced via useAuth().error
+      // error surfaced via useAuth().error (inline helper + toast effect above)
     } finally {
       setSubmitting(false);
     }
@@ -39,111 +55,98 @@ export function SignInScreen() {
   return (
     <Screen scroll={false} contentStyle={styles.center}>
       <View style={styles.header}>
+        <Logo size={72} />
         <Text
           style={{
-            color: theme.colors.brand.blue,
-            fontSize: theme.fontSize['3xl'],
-            fontWeight: theme.fontWeight.bold,
-            letterSpacing: theme.letterSpacing.tight,
+            color: theme.colors.text,
+            fontFamily: theme.fonts.display,
+            fontWeight: '700',
+            fontSize: 34,
+            letterSpacing: 0.5,
           }}
         >
-          Soteria Forge
+          SOTERIA<Text style={{ color: theme.colors.primary }}> FORGE</Text>
         </Text>
-        <Text style={{ color: theme.colors.text.secondary, fontSize: theme.fontSize.base }}>
+        <Text
+          style={{
+            color: theme.colors.textMuted,
+            fontFamily: theme.fonts.body,
+            fontSize: 15,
+            textAlign: 'center',
+          }}
+        >
           Field-ready training. Sign in to continue.
         </Text>
       </View>
 
       <View style={styles.form}>
-        <TextInput
-          placeholder="Email"
-          placeholderTextColor={theme.colors.text.muted}
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
+        <TextField
+          label="Email"
+          placeholder="you@company.com"
           value={email}
           onChangeText={setEmail}
-          style={[
-            styles.input,
-            {
-              borderColor: theme.colors.border.default,
-              color: theme.colors.text.primary,
-              borderRadius: theme.radii.md,
-              backgroundColor: theme.colors.bg.surface,
-            },
-          ]}
+          keyboardType="email-address"
+          autoCapitalize="none"
         />
-        <TextInput
-          placeholder="Password"
-          placeholderTextColor={theme.colors.text.muted}
-          secureTextEntry
-          autoComplete="password"
+        <TextField
+          label="Password"
+          placeholder="••••••••"
           value={password}
           onChangeText={setPassword}
-          style={[
-            styles.input,
-            {
-              borderColor: theme.colors.border.default,
-              color: theme.colors.text.primary,
-              borderRadius: theme.radii.md,
-              backgroundColor: theme.colors.bg.surface,
-            },
-          ]}
+          secureTextEntry={!showPassword}
+          autoCapitalize="none"
+          // Inline sign-in failures land on the password field; tenancy is never
+          // part of this form, so the error is always a credential/backend issue.
+          errorText={error ?? undefined}
+          rightIcon={
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              hitSlop={8}
+              onPress={() => setShowPassword((v) => !v)}
+            >
+              <Text
+                style={{
+                  color: theme.colors.primary,
+                  fontFamily: theme.fonts.display,
+                  fontWeight: '600',
+                  fontSize: 12.5,
+                  letterSpacing: 0.6,
+                }}
+              >
+                {showPassword ? 'HIDE' : 'SHOW'}
+              </Text>
+            </Pressable>
+          }
         />
 
-        {error ? (
-          <Text style={{ color: theme.colors.semantic.danger, fontSize: theme.fontSize.sm }}>
-            {error}
-          </Text>
-        ) : null}
-
-        <Pressable
-          accessibilityRole="button"
-          disabled={submitting || !backendReady}
+        <Button
+          title="Sign in"
           onPress={onSubmit}
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: theme.colors.brand.blue,
-              borderRadius: theme.radii.md,
-              opacity: submitting || !backendReady ? 0.6 : pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          {submitting ? (
-            <ActivityIndicator color={theme.colors.text.inverse} />
-          ) : (
-            <Text
-              style={{
-                color: theme.colors.text.inverse,
-                fontSize: theme.fontSize.base,
-                fontWeight: theme.fontWeight.semibold,
-              }}
-            >
-              Sign in
-            </Text>
-          )}
-        </Pressable>
+          fullWidth
+          loading={submitting}
+          disabled={!backendReady || !email || !password}
+        />
 
-        {!backendReady ? (
-          <Text style={{ color: theme.colors.text.muted, fontSize: theme.fontSize.xs }}>
-            Backend not deployed yet — sign-in is disabled until a Cognito pool exists
-            (run `npx ampx sandbox` in backend/).
-          </Text>
-        ) : (
-          <Text style={{ color: theme.colors.text.muted, fontSize: theme.fontSize.xs }}>
-            Enterprise SSO for your organization is coming soon.
-          </Text>
-        )}
+        <Text
+          style={{
+            color: theme.colors.textMuted,
+            fontFamily: theme.fonts.body,
+            fontSize: 12.5,
+            textAlign: 'center',
+          }}
+        >
+          {!backendReady
+            ? 'Backend not deployed yet — sign-in is disabled until a Cognito pool exists (run `npx ampx sandbox` in backend/).'
+            : 'Enterprise SSO for your organization is coming soon.'}
+        </Text>
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: 'center', gap: 32 },
-  header: { gap: 8, alignItems: 'center' },
-  form: { gap: 12 },
-  input: { borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16 },
-  button: { minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  center: { flex: 1, justifyContent: 'center', gap: 36 },
+  header: { gap: 12, alignItems: 'center' },
+  form: { gap: 16 },
 });

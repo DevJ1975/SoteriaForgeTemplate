@@ -32,6 +32,9 @@ import {
   assertTenantMatch,
   isSameTenant,
   TenantIsolationError,
+  tenantAdminGroup,
+  stampTenantOwnership,
+  ADMIN_GROUP_PREFIX,
   // xapi
   createCompletionStatement,
   statementIdempotencyKey,
@@ -164,6 +167,43 @@ test('assertTenantMatch throws TenantIsolationError on mismatch', () => {
 test('assertTenantMatch throws when claim is missing (never coerces to match)', () => {
   assert.throws(() => assertTenantMatch(undefined, 'acme'), TenantIsolationError)
   assert.throws(() => assertTenantMatch('', ''), TenantIsolationError)
+})
+
+// ---------------------------------------------------------------------------
+// tenant: server-side ownership STAMP
+// ---------------------------------------------------------------------------
+
+test('tenantAdminGroup builds admin::<tenantId>', () => {
+  assert.equal(tenantAdminGroup('acme'), 'admin::acme')
+  assert.equal(ADMIN_GROUP_PREFIX, 'admin::')
+})
+
+test('tenantAdminGroup rejects empty and whitespace-only ids', () => {
+  assert.throws(() => tenantAdminGroup(''), TenantIsolationError)
+  assert.throws(() => tenantAdminGroup('   '), TenantIsolationError)
+})
+
+test('tenantAdminGroup rejects ids containing the # delimiter', () => {
+  assert.throws(() => tenantAdminGroup('acme#evil'), TenantIsolationError)
+})
+
+test('stampTenantOwnership derives tenantId and adminGroup from the single claim', () => {
+  const stamp = stampTenantOwnership('acme')
+  assert.deepEqual(stamp, { tenantId: 'acme', adminGroup: 'admin::acme' })
+})
+
+test('stampTenantOwnership: adminGroup prefix is exactly admin:: and pairs the same id', () => {
+  const stamp = stampTenantOwnership('globex')
+  // adminGroup is prefix + the exact same id used for tenantId — they cannot diverge.
+  assert.equal(stamp.adminGroup, `admin::${stamp.tenantId}`)
+  assert.ok(stamp.adminGroup.startsWith('admin::'))
+  assert.equal(stamp.adminGroup.slice('admin::'.length), stamp.tenantId)
+})
+
+test('stampTenantOwnership rejects empty, whitespace, and delimiter-bearing claims', () => {
+  assert.throws(() => stampTenantOwnership(''), TenantIsolationError)
+  assert.throws(() => stampTenantOwnership('  '), TenantIsolationError)
+  assert.throws(() => stampTenantOwnership('acme#globex'), TenantIsolationError)
 })
 
 // ---------------------------------------------------------------------------

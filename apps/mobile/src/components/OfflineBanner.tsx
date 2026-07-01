@@ -8,6 +8,10 @@
  * variant is used so the banner still renders (as "online, nothing pending") if
  * it is ever mounted before/outside the OfflineProvider — the markup below is
  * unchanged from the shell's original seam.
+ *
+ * Colors/typography come from the flat @soteria-forge/ui theme: `warning` for
+ * the offline strip, `info` for the syncing strip, `onPrimary` for readable
+ * text on both, and the display font for the uppercase label.
  */
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,7 +26,7 @@ export function OfflineBanner() {
   // Nothing to say when online and fully synced.
   if (isOnline && pendingSyncCount === 0) return null;
 
-  const backgroundColor = isOnline ? theme.colors.status.progress : theme.colors.status.offline;
+  const backgroundColor = isOnline ? theme.colors.info : theme.colors.warning;
   const message = !isOnline
     ? pendingSyncCount > 0
       ? `Offline — ${pendingSyncCount} item${pendingSyncCount === 1 ? '' : 's'} will sync when reconnected`
@@ -34,17 +38,15 @@ export function OfflineBanner() {
       accessibilityRole="alert"
       style={[
         styles.container,
-        { backgroundColor, paddingTop: insets.top > 0 ? insets.top : theme.spacing[2] },
+        { backgroundColor, paddingTop: insets.top > 0 ? insets.top : theme.spacing.sm },
       ]}
     >
       <Text
         style={[
           styles.text,
           {
-            color: theme.colors.text.inverse,
-            fontSize: theme.fontSize.xs,
-            fontWeight: theme.fontWeight.semibold,
-            letterSpacing: theme.letterSpacing.wide,
+            color: theme.colors.onPrimary,
+            fontFamily: theme.fonts.display,
           },
         ]}
       >
@@ -65,5 +67,7 @@ const styles = StyleSheet.create({
   text: {
     textAlign: 'center',
     textTransform: 'uppercase',
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
 });

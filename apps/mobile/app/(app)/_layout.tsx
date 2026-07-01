@@ -21,10 +21,10 @@ export default function AppLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: theme.colors.bg.base },
-        headerTintColor: theme.colors.text.primary,
+        headerStyle: { backgroundColor: theme.colors.bg },
+        headerTintColor: theme.colors.text,
         headerShadowVisible: false,
-        contentStyle: { backgroundColor: theme.colors.bg.base },
+        contentStyle: { backgroundColor: theme.colors.bg },
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

@@ -31,6 +31,7 @@ The load-bearing decisions behind the rebuild live in **[`adr/`](./adr/)** — s
 | [0003](./adr/0003-single-pool-multitenancy.md) | **Single Cognito pool** + `custom:tenantId` + groups; **single-table DynamoDB** with `TENANT#` partition; the tenant-match invariant. |
 | [0004](./adr/0004-turborepo-monorepo.md) | **Turborepo** over plain npm workspaces; retire `lms` + old `api`, keep console, add mobile + backend + ui. |
 | [0005](./adr/0005-video-cloudflare-stream.md) | **Cloudflare Stream** stays (AWS/CF split is deliberate); MP4 download enables offline; DynamoDB stores metadata only. |
+| [0006](./adr/0006-adopt-soteria-forge-ui-kit.md) | Adopt the **Soteria Forge UI kit** as `packages/ui` for mobile (ember/spark + Oswald/Barlow, light/dark, gamification/report components). Records an **open brand divergence**: mobile is ember/spark while console + root stay Ink/Bone/Cobalt. |
 
 ## Operational and product notes
 
@@ -60,7 +61,12 @@ and the marketplace/billing model.
   `apps/console/src/theme/tokens.css`).
 - `packages/shared/` — domain types, xAPI schema, single-table key builders
   (`keys.ts`), and the tenant guard (`tenant.ts`).
-- `packages/ui/` — design tokens (Ink/Bone/Cobalt), shared with mobile.
+- `packages/ui/` — the **Soteria Forge UI kit**: a cross-platform React Native
+  component library (ember/spark palette, Oswald/Barlow type, light/dark)
+  consumed by `apps/mobile`. See [ADR-0006](./adr/0006-adopt-soteria-forge-ui-kit.md)
+  and `packages/ui/CLAUDE.md`. **Brand divergence:** this kit is ember/spark
+  while `apps/console` + the root `CLAUDE.md` remain Ink/Bone/Cobalt — an open
+  reconciliation decision for the owner.
 
 ## The non-negotiable invariant
 
