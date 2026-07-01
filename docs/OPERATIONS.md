@@ -20,6 +20,35 @@ From the security review (`SECURITY_REVIEW.md`). Status column is the last known
 > After changing Auth settings, the fastest functional check for *Confirm email*: sign up a brand-new
 > email in the app — if it must be confirmed before login, it's on.
 
+### Alternative: script the Auth toggles via the Management API
+
+The Supabase **MCP does not expose Auth config**, so the dashboard is the normal path. If you'd rather
+script it, use the Management API — but note it needs a **Personal Access Token** (`sbp_…`, from
+Account → Access Tokens; a broad account-scope secret) and a machine with **unrestricted network**
+(this repo's CI/agent sandbox blocks `api.supabase.com`). **Never commit the token** — pass it via an
+env var only.
+
+```bash
+export SUPABASE_ACCESS_TOKEN=sbp_xxx          # your personal access token — DO NOT COMMIT
+PROJECT_REF=bgnadngztngkwzneknhd
+
+# 1) Inspect the CURRENT auth config (also confirms the exact field names for your API version)
+curl -s "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" | jq
+
+# 2) PATCH the two hardening settings. Field names as of the current API:
+#      mailer_autoconfirm=false   -> REQUIRE email confirmation (Finding 3)
+#      password_hibp_enabled=true -> leaked-password (HaveIBeenPwned) protection
+#    Verify these keys against the GET output above before applying — API fields evolve.
+curl -s -X PATCH "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "mailer_autoconfirm": false, "password_hibp_enabled": true }'
+```
+
+Then re-run `get_advisors(security)` (or dashboard → Advisors) to confirm the
+`auth_leaked_password_protection` warning has cleared.
+
 ## 2. Security follow-ups
 
 - **Review `public.rls_auto_enable()`** — a `SECURITY DEFINER`, anon-executable function that **predates
