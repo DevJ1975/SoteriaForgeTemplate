@@ -20,7 +20,8 @@ Backend pivot: **AWS/Amplify → Supabase.** Tenant isolation (the #1 rule) is n
 |---|---|
 | **ref** | `bgnadngztngkwzneknhd` |
 | **url** | `https://bgnadngztngkwzneknhd.supabase.co` |
-| **applied migrations** | `01_core_schema`, `02_rls_policies`, `03_storage`, `04_harden_function_grants`, `05_stamp_only_for_authenticated` |
+| **applied migrations** | `01_core_schema` → `11_certificates` (11 total: core schema, RLS, storage, grant hardening, stamp-only-for-authenticated, invitations, provision_tenant, enrollment-progress-from-statements, role-escalation guard, tenant-FK consistency + invite hardening, certificates) |
+| **deployed functions** | `stream-signed-url` (version 1, `verify_jwt=true`) — returns 501 until the `CF_*` secrets are set (see [`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) → "Cloudflare Stream") |
 | **seeded** | tenants `atl-curb-to-cabin`, `demo`; a published course (`Confined Space Entry`, 1 module + 2 lessons); 4 demo users (below) |
 
 ## Demo accounts (seeded — password `SoteriaForge!2026`)
@@ -64,7 +65,9 @@ Video bytes live on **Cloudflare Stream** (ADR-0005 / ADR-0008); `video_assets` 
 tenant. The `supabase/functions/stream-signed-url` edge function reads the requested `video_assets` row
 **through the caller's JWT (RLS scopes it to the caller's tenant — never the service-role key)** and mints
 a short-lived Cloudflare Stream **signed** playback URL; it returns **501** until the `CF_*` secrets are
-configured (safe to deploy first). Offline playback uses the cached MP4 `download_url`. See
+configured (safe to deploy first). It is **already deployed live** (`stream-signed-url`, version 1,
+`verify_jwt=true`) and currently returns 501 pending those secrets. Offline playback uses the cached MP4
+`download_url`. See
 [`functions/stream-signed-url/README.md`](functions/stream-signed-url/README.md) and
 [`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) → "Cloudflare Stream (video)".
 

@@ -94,6 +94,11 @@ Playback is authorized by the `supabase/functions/stream-signed-url` edge functi
 service-role key) and then mints a short-lived Cloudflare Stream signed URL. Until the secrets below are
 set the function returns **501 `{ "error": "video provider not configured" }`**, so it is safe to deploy first.
 
+> **Deployed state:** the function is **already deployed** to the live project (`stream-signed-url`,
+> version 1, `verify_jwt=true`) and currently returns **501** — pending the `CF_*` secrets below. Setting
+> the secrets makes it start minting signed URLs immediately; no redeploy is required for that (redeploy
+> only when the function *code* changes).
+
 ### One-time Cloudflare setup (dashboard)
 
 1. Create a **Cloudflare account** and add a **Stream** subscription (dash.cloudflare.com → Stream).
@@ -107,12 +112,15 @@ set the function returns **501 `{ "error": "video provider not configured" }`**,
 ### Set the function secrets + deploy (Supabase CLI)
 
 ```bash
+# The function is already deployed (version 1). Setting these secrets flips it
+# from 501 to minting signed URLs — no redeploy needed for that.
 supabase secrets set \
   CF_ACCOUNT_ID=... \
   CF_STREAM_API_TOKEN=... \
   CF_STREAM_CUSTOMER_CODE=... \
   --project-ref bgnadngztngkwzneknhd     # secrets — DO NOT COMMIT the token
 
+# Only re-deploy when the function CODE changes:
 supabase functions deploy stream-signed-url --project-ref bgnadngztngkwzneknhd
 ```
 
