@@ -13,7 +13,7 @@ const email = ref('superadmin@soteriaforge.local')
 const password = ref('SoteriaForgeDemo!2026')
 const tenantLoginSlug = ref('demo')
 const status = ref('Sign in to manage tenants and course drafts.')
-const isLoggedIn = ref(Boolean(localStorage.getItem('soteria-forge-console:token')))
+const isLoggedIn = ref(false)
 const tenants = ref<TenantDTO[]>([])
 const packages = ref<ProductPackageDTO[]>([])
 const selectedTenantSlug = ref('demo')
@@ -128,7 +128,8 @@ async function provisionTenant() {
 
 async function saveDraftCourse() {
   status.value = 'Saving course draft'
-  localStorage.setItem('soteria-forge-console:tenantSlug', selectedTenantSlug.value)
+  // No tenant slug is sent: RLS stamps the course to the signed-in caller's own
+  // tenant from the session JWT. The selector below is a display affordance only.
   const response = await consoleApi.createCourse(coursePreview.value)
   savedCourse.value = response.course
   status.value = `Saved draft: ${response.course.title}`
@@ -137,7 +138,6 @@ async function saveDraftCourse() {
 async function publishDraftCourse() {
   if (!savedCourse.value) return
   status.value = 'Publishing course'
-  localStorage.setItem('soteria-forge-console:tenantSlug', selectedTenantSlug.value)
   const response = await consoleApi.publishCourse(savedCourse.value.id)
   savedCourse.value = response.course
   status.value = `Published: ${response.course.title}`
@@ -170,11 +170,18 @@ async function convertSelectedTenant() {
   await loadTenants()
 }
 
-onMounted(() => {
-  if (isLoggedIn.value) {
-    void loadTenants().catch((error) => {
-      status.value = error instanceof Error ? error.message : 'Unable to load tenants'
-    })
+onMounted(async () => {
+  // Restore any persisted Supabase session (auth.persistSession) instead of a
+  // localStorage bearer token. RLS re-derives the tenant from the session.
+  try {
+    const session = await consoleApi.currentSession()
+    if (session) {
+      isLoggedIn.value = true
+      status.value = `Signed in as ${session.user.email}`
+      await loadTenants()
+    }
+  } catch (error) {
+    status.value = error instanceof Error ? error.message : 'Unable to restore session'
   }
 })
 </script>

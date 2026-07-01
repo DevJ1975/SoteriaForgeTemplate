@@ -30,12 +30,14 @@ export type { EnqueueCompletionInput, CompletionRowFields } from './queue';
 export {
   syncEngine,
   SyncEngine,
+  supabaseUploader,
   backoffDelayMs,
   decideNext,
   DEFAULT_BACKOFF,
 } from './sync';
 export type {
   StatementUploader,
+  UploadContext,
   UploadOutcome,
   RetryDecision,
   BackoffPolicy,

@@ -104,7 +104,7 @@ export function CourseDetailScreen() {
   if (backendPending) {
     return (
       <Screen>
-        <Notice text="Course details load once the AppSync backend is running." />
+        <Notice text="Course details load once the app is connected to Supabase." />
       </Screen>
     );
   }

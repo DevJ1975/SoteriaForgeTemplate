@@ -8,8 +8,8 @@
  *   - If authenticated and currently in the `(auth)` group → send to the app home.
  *
  * Because "authenticated" here means AuthProvider successfully derived a
- * verified identity WITH a `custom:tenantId` claim, a user can never reach the
- * app stack without a trusted tenant scope.
+ * verified identity WITH a tenant (from the caller's profile row), a user can
+ * never reach the app stack without a trusted tenant scope.
  */
 import { useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';

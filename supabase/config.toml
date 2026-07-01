@@ -1,0 +1,30 @@
+# Soteria Forge — Supabase CLI config.
+# The LIVE project (ref bgnadngztngkwzneknhd) is already provisioned & migrated;
+# this file lets `supabase link` / `db push` / `gen types` operate against it and
+# lets `supabase start` run an equivalent local stack from ./migrations + ./seed.sql.
+project_id = "bgnadngztngkwzneknhd"
+
+[db]
+# Match the live project's Postgres major version so local == remote.
+major_version = 17
+
+[db.seed]
+# Applied by `supabase db reset` (local) after migrations run.
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[storage]
+enabled = true
+# Bucket 'tenant-media' is created by migration 03_storage; objects are
+# tenant-scoped by the first path segment (<tenant_id>/...) and served via
+# time-limited signed URLs. Keep this generous for training video/media.
+file_size_limit = "500MiB"
+
+[auth]
+enabled = true
+# Email/password auth (Supabase Auth replaces Cognito). No anonymous sign-ins.
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false

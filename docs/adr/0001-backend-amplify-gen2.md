@@ -1,9 +1,15 @@
 # ADR-0001: Backend on Amplify Gen 2 (over raw CDK)
 
-- **Status:** Accepted
+- **Status:** **Superseded by [ADR-0007](./0007-supabase-backend.md).**
 - **Date:** 2026-07-01
 - **Deciders:** Platform / backend
 - **Related:** [ADR-0002](./0002-offline-event-sourcing.md), [ADR-0003](./0003-single-pool-multitenancy.md)
+
+> **Superseded by [ADR-0007](./0007-supabase-backend.md) (2026-07-01).** The
+> backend moved off AWS/Amplify to **Supabase** (Postgres + RLS + Auth + Storage)
+> before anything here was deployed. The Amplify Gen 2 definition (`backend/`) has
+> been deleted; this record is kept for history. Read [ADR-0007](./0007-supabase-backend.md)
+> for the current backend.
 
 ## Context
 

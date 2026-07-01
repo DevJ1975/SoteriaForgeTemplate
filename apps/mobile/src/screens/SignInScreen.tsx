@@ -1,13 +1,14 @@
 /**
- * SignInScreen — email/password sign-in against the single Cognito user pool.
+ * SignInScreen — email/password sign-in against Supabase Auth.
  *
  * On success, `useAuth().signIn` refreshes the session; the resulting identity
- * (including the verified `custom:tenantId`) is projected by AuthProvider. This
- * screen NEVER collects or forwards a tenantId — tenancy is decided entirely by
- * the user's Cognito account, not by anything typed here.
+ * (including the tenantId + role from the caller's `public.profiles` row) is
+ * projected by AuthProvider. This screen NEVER collects or forwards a tenantId —
+ * tenancy is decided entirely by the user's profile, not by anything typed here,
+ * and RLS derives it from the session server-side.
  *
- * Enterprise SSO (per-tenant SAML/OIDC federated into the one pool) is deferred;
- * a placeholder affordance documents where the hosted-UI redirect will go.
+ * Enterprise SSO (per-tenant SAML/OIDC) is deferred; a placeholder affordance
+ * documents where the federated redirect will go.
  *
  * Re-skinned on the @soteria-forge/ui kit: the Forged-Shield Logo, kit TextField
  * (with a tap-to-reveal password adornment + email keyboard), a primary kit
@@ -19,7 +20,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button, Logo, TextField, useTheme, useToast } from '@soteria-forge/ui';
 import { Screen } from '../components';
-import { useAuth, isAmplifyConfigured } from '../auth';
+import { useAuth, isSupabaseConfigured } from '../auth';
 
 export function SignInScreen() {
   const theme = useTheme();
@@ -30,7 +31,7 @@ export function SignInScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const backendReady = isAmplifyConfigured();
+  const backendReady = isSupabaseConfigured;
 
   // Surface auth errors from useAuth() as a transient snackbar in addition to
   // the inline field helper, so a failure is noticed even off-screen.
@@ -42,8 +43,10 @@ export function SignInScreen() {
     if (!email || !password || submitting) return;
     setSubmitting(true);
     try {
-      // Tenancy is NOT collected here — only username/password. The verified
-      // custom:tenantId claim is projected by AuthProvider after this resolves.
+      // Tenancy is NOT collected here — only email/password. The tenant + role
+      // are projected from the caller's profile by AuthProvider after this
+      // resolves (RLS derives the tenant from the session; the client never
+      // sends one). `username` carries the email for call-site compatibility.
       await signIn({ username: email.trim(), password });
     } catch {
       // error surfaced via useAuth().error (inline helper + toast effect above)
@@ -137,7 +140,7 @@ export function SignInScreen() {
           }}
         >
           {!backendReady
-            ? 'Backend not deployed yet — sign-in is disabled until a Cognito pool exists (run `npx ampx sandbox` in backend/).'
+            ? 'Backend not configured — set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY (copy .env.example to .env) to enable sign-in.'
             : 'Enterprise SSO for your organization is coming soon.'}
         </Text>
       </View>

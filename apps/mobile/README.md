@@ -1,16 +1,17 @@
 # @soteria-forge/mobile
 
 The Soteria Forge learner app — React Native + Expo (**custom dev client**). A
-worker signs in against the single Cognito user pool, sees **their tenant's**
-assigned courses, plays lesson video, and (via a later offline layer) completes
-training offline that syncs as append-only, idempotent xAPI statements.
+worker signs in with **Supabase Auth** (email/password), sees **their tenant's**
+assigned courses, plays lesson video, and completes training offline that syncs
+as append-only, idempotent xAPI statements.
 
 > **NOT YET BUILT OR DEPLOYED.** This is defined-as-code scaffolding. Nothing
 > here has been `npm install`ed, `prebuild`ed, or built into a native binary,
-> and no AWS/Expo cloud resources exist. The AppSync backend is likewise
-> undeployed, so there is no `amplify_outputs.json` yet — the app boots into an
-> unauthenticated state and every data screen renders a "backend not deployed"
-> empty state until it exists. See **Bring-up** below.
+> and no Expo cloud resources exist. The **backend is a live Supabase project**,
+> but until this app is configured with `EXPO_PUBLIC_SUPABASE_URL` /
+> `EXPO_PUBLIC_SUPABASE_ANON_KEY` (copy `.env.example` → `.env`) it boots into an
+> unauthenticated state and every data screen renders an "unconfigured" empty
+> state. See **Bring-up** below.
 
 ## Why a custom dev client (not Expo Go)
 
@@ -19,9 +20,9 @@ This app depends on native modules that are **not** in the Expo Go runtime:
 - `react-native-video` (v7) — lesson playback
 - `@nozbe/watermelondb` — the offline store (owned by the offline layer)
 - `@react-native-community/netinfo` — connectivity
-- `aws-amplify` + `@aws-amplify/react-native` — Cognito auth
 
 So you must run a **development build** (custom dev client) rather than Expo Go.
+(`@supabase/supabase-js` is pure JS and needs no native module.)
 
 ## Architecture at a glance
 
@@ -33,12 +34,13 @@ app/                         expo-router route tree (thin wrappers only)
   (app)/course/[id].tsx      course detail (tenant-scoped lookup)
 src/
   theme/                     ThemeProvider bridging @soteria-forge/ui tokens → RN
-  auth/                      Amplify config + AuthProvider/useAuth (tenantId + groups)
+  supabase/                  typed createClient<Database> (the one backend handle)
+  auth/                      AuthProvider/useAuth (tenantId + role from the profile)
   navigation/                AppProviders + the auth redirect guard
-  api/                       tenant-scoped AppSync/Amplify Data client wrapper
+  api/                       tenant-scoped Supabase data client (RLS-enforced)
   screens/                   SignIn, Home, CourseList, CourseDetail
   components/                Screen, OfflineBanner
-  offline/  db/              OWNED BY THE OFFLINE AGENT — not in this scaffold
+  offline/  db/              OWNED BY THE OFFLINE AGENT — WatermelonDB + sync
 ```
 
 ### Design tokens
@@ -50,25 +52,29 @@ this app.
 
 ### Tenant isolation (the #1 rule)
 
-The `tenantId` the app operates under comes **only** from the verified Cognito
-`custom:tenantId` token claim (`src/auth/AuthProvider.tsx`). It is never read
-from user input, deep-link params, or editable storage. Every data read goes
-through `src/api` scoped to that tenant, and the server (Lambda authorizer +
-AppSync resolvers) is the real enforcement point: a forged tenantId is refused
-cross-tenant. A session whose token lacks `custom:tenantId` is treated as
-unauthenticated.
+The `tenantId` the app operates under comes **only** from the caller's
+`public.profiles` row (`src/auth/AuthProvider.tsx`), fetched with the verified
+Supabase session. It is never read from user input, deep-link params, or editable
+storage, and the app **never sends a tenant_id for authorization**. Enforcement is
+**Postgres RLS**: every read is constrained to the caller's tenant via
+`public.current_tenant_id()`, and every insert is tenant-stamped by a BEFORE
+INSERT trigger from the verified auth context — a forged tenant_id cannot widen
+access. A session with no profile/tenant is treated as unauthenticated.
 
-### Offline seams (owned by a later agent)
+### Offline layer (owned by the offline agent)
 
-`src/offline/**` and `src/db/**` are intentionally absent — a following offline
-agent owns them (WatermelonDB models + sync engine + NetInfo). This scaffold
-leaves explicit, documented seams so that work drops in without touching the
-shell:
+`src/offline/**` and `src/db/**` hold the WatermelonDB models + append-only
+completion outbox + sync engine + NetInfo. The sync engine's transport now
+targets Supabase: it upserts each queued statement into
+`public.completion_statements` with `onConflict: 'id', ignoreDuplicates: true`
+(append-only + idempotent by the client UUID). The WatermelonDB queue and its
+no-conflict design are unchanged — only the network target is Supabase:
 
-- `src/api/useCourses.ts` — swap the source to a local WatermelonDB store.
-- `src/components/OfflineBanner.tsx` — replace the local `useConnectivity()`
-  fallback with the offline layer's NetInfo/queue-backed hook.
-- `src/navigation/AppProviders.tsx` — wrap `AuthProvider` with `OfflineProvider`.
+- `src/api/useCourses.ts` — reads local WatermelonDB cache when offline, Supabase
+  (RLS-scoped) when online, hydrating the cache.
+- `src/components/OfflineBanner.tsx` — consumes the offline layer's
+  NetInfo/queue-backed `useConnectivity()` hook.
+- `src/navigation/AppProviders.tsx` — wraps `AuthProvider` with `OfflineProvider`.
 
 xAPI statement ids are **client-generated UUIDs** (`@soteria-forge/shared`
 `generateStatementId`), which is what makes offline retry idempotent — the
@@ -85,13 +91,14 @@ RNG that depends on.
    npm run build --workspace @soteria-forge/shared
    npm run build --workspace @soteria-forge/ui
    ```
-2. **Backend outputs.** In `backend/`, start a sandbox to generate the runtime
-   config the app loads:
+2. **Configure Supabase.** Copy `.env.example` → `.env` and set the
+   client-safe (RLS-protected) publishable key + project URL:
    ```bash
-   npx ampx sandbox            # writes amplify_outputs.json
+   EXPO_PUBLIC_SUPABASE_URL=https://bgnadngztngkwzneknhd.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
    ```
-   Copy/symlink the generated `amplify_outputs.json` into `apps/mobile/` (it is
-   git-ignored). `amplify_outputs.example.json` shows the expected shape.
+   The SERVICE ROLE key must NEVER go in the app. The publishable key is safe to
+   ship — RLS is the boundary.
 3. **Native project + dev client:**
    ```bash
    npm --workspace @soteria-forge/mobile run ios      # or: run android
@@ -120,9 +127,11 @@ been created.**
 
 ## Env
 
-Copy `.env.example` → `.env`. It holds **non-secret** build-time hints only
-(`APP_ENV`, sync batch size). Real credentials live in the git-ignored
-`amplify_outputs.json`, never in env or source.
+Copy `.env.example` → `.env`. It holds the **client-safe** Supabase URL +
+publishable/anon key (RLS-protected — meant to ship) plus non-secret build hints
+(`APP_ENV`, sync batch size). The Supabase **service role key** must never appear
+in this app or in env; only `.env.example` placeholders are tracked, and the real
+`.env` is git-ignored.
 
 ## Type-check
 

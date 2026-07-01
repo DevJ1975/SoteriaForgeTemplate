@@ -1,9 +1,21 @@
 # ADR-0003: Single Cognito pool + `custom:tenantId` + single-table DynamoDB
 
-- **Status:** Accepted
+- **Status:** **AWS enforcement details superseded by [ADR-0007](./0007-supabase-backend.md);** the multi-tenant *intent* stands.
 - **Date:** 2026-07-01
 - **Deciders:** Platform / security / backend
-- **Related:** [ADR-0001](./0001-backend-amplify-gen2.md), [ADR-0002](./0002-offline-event-sourcing.md), [ADR-0004](./0004-turborepo-monorepo.md)
+- **Related:** [ADR-0001](./0001-backend-amplify-gen2.md), [ADR-0002](./0002-offline-event-sourcing.md), [ADR-0004](./0004-turborepo-monorepo.md), [ADR-0007](./0007-supabase-backend.md)
+
+> **Partially superseded by [ADR-0007](./0007-supabase-backend.md) (2026-07-01).**
+> The **non-negotiable invariant this ADR defines — one platform, many tenants, and
+> no request may ever read or write another tenant's data — is unchanged and still
+> load-bearing.** What is superseded is the **AWS *mechanism***: the single Cognito
+> pool, `custom:tenantId` claim, single-table DynamoDB `TENANT#` partition, AppSync
+> dynamic-group authorization, pre-token-generation trigger, and Lambda authorizer
+> described below. Under Supabase, the same invariant is enforced by **Postgres RLS**
+> keyed on `public.current_tenant_id()`, with tenants stamped by a `BEFORE INSERT`
+> trigger from the verified auth context (see [ADR-0007](./0007-supabase-backend.md)).
+> Read this ADR for *why tenant isolation matters and what "same tenant" means*; read
+> ADR-0007 for *how it is enforced today*.
 
 ## Context
 

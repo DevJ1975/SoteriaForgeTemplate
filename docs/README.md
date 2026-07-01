@@ -1,13 +1,16 @@
 # Soteria Forge — Documentation
 
-Product, architecture, and operational notes for the **AWS-era Soteria Forge
-rebuild**: the move from the Vercel + Express + MongoDB template to an Amplify
-Gen 2 backend, an Expo (React Native) learner app, a kept Vue admin console, and
-a Turborepo monorepo.
+Product, architecture, and operational notes for the **Soteria Forge rebuild**:
+the move from the Vercel + Express + MongoDB template to a **Supabase** backend
+(Postgres + RLS + Auth + Storage), an Expo (React Native) learner app, a kept Vue
+admin console, and a Turborepo monorepo.
 
-> **Phase 0 is defined-as-code only.** Nothing in this rebuild is deployed and no
-> AWS/Cloudflare/Expo resources exist. These docs describe the intended system;
-> correctness of the *definition* is the deliverable.
+> **Backend pivot: AWS/Amplify → Supabase** ([ADR-0007](./adr/0007-supabase-backend.md)).
+> The AWS/Amplify backend originally planned (ADR-0001/0003) was defined-as-code but
+> **never deployed**, and has been deleted in favor of Supabase. A **live Supabase
+> project** (ref `bgnadngztngkwzneknhd`) is provisioned, migrated, and seeded, and is
+> mirrored as code in [`supabase/`](../supabase/). The **client apps** (`apps/mobile`,
+> `apps/console`) remain source-only until their toolchains are installed and deployed.
 
 ## Start here
 
@@ -26,12 +29,13 @@ The load-bearing decisions behind the rebuild live in **[`adr/`](./adr/)** — s
 
 | ADR | Decision |
 |-----|----------|
-| [0001](./adr/0001-backend-amplify-gen2.md) | Backend on **Amplify Gen 2** (over raw CDK). |
-| [0002](./adr/0002-offline-event-sourcing.md) | Offline via **append-only event sourcing**, idempotent-by-UUID sync (no DataStore); WatermelonDB + NetInfo + AppSync. |
-| [0003](./adr/0003-single-pool-multitenancy.md) | **Single Cognito pool** + `custom:tenantId` + groups; **single-table DynamoDB** with `TENANT#` partition; the tenant-match invariant. |
-| [0004](./adr/0004-turborepo-monorepo.md) | **Turborepo** over plain npm workspaces; retire `lms` + old `api`, keep console, add mobile + backend + ui. |
-| [0005](./adr/0005-video-cloudflare-stream.md) | **Cloudflare Stream** stays (AWS/CF split is deliberate); MP4 download enables offline; DynamoDB stores metadata only. |
+| [0001](./adr/0001-backend-amplify-gen2.md) | Backend on **Amplify Gen 2** (over raw CDK). **Superseded by [0007](./adr/0007-supabase-backend.md).** |
+| [0002](./adr/0002-offline-event-sourcing.md) | Offline via **append-only event sourcing**, idempotent-by-UUID sync (no DataStore). Under Supabase, sync is an `upsert(onConflict: 'id', ignoreDuplicates: true)`. |
+| [0003](./adr/0003-single-pool-multitenancy.md) | **Multi-tenant, tenant-isolation invariant** (the #1 rule). Its AWS mechanism (single Cognito pool + single-table DynamoDB) is **superseded by [0007](./adr/0007-supabase-backend.md)** (RLS); the isolation *intent* stands. |
+| [0004](./adr/0004-turborepo-monorepo.md) | **Turborepo** over plain npm workspaces; retire `lms` + old `api`, keep console, add mobile + ui. |
+| [0005](./adr/0005-video-cloudflare-stream.md) | **Cloudflare Stream** stays; MP4 download enables offline; the database stores video metadata only. |
 | [0006](./adr/0006-adopt-soteria-forge-ui-kit.md) | Adopt the **Soteria Forge UI kit** as `packages/ui` for mobile (ember/spark + Oswald/Barlow, light/dark, gamification/report components). Records an **open brand divergence**: mobile is ember/spark while console + root stay Ink/Bone/Cobalt. |
+| [0007](./adr/0007-supabase-backend.md) | **Supabase** (Postgres + RLS + Auth + Storage) replaces AWS/Amplify. RLS via `current_tenant_id()` is the tenant-isolation gate. Supersedes 0001 and the AWS specifics of 0003. |
 
 ## Operational and product notes
 
@@ -52,15 +56,17 @@ and the marketplace/billing model.
 
 ## Where the architecture lives in code
 
-- `backend/` — Amplify Gen 2 definition (auth, data, storage, functions).
-  See [`backend/README.md`](../backend/README.md) and
-  [`backend/data/tenant-isolation.md`](../backend/data/tenant-isolation.md).
-- `apps/mobile/` — Expo learner app. See
+- `supabase/` — the Supabase backend as code: `config.toml`, `migrations/` (schema,
+  RLS policies, storage, grant hardening), and `seed.sql`. Mirrors the live project
+  (ref `bgnadngztngkwzneknhd`). See [`supabase/README.md`](../supabase/README.md).
+- `apps/mobile/` — Expo learner app (supabase-js client). See
   [`apps/mobile/README.md`](../apps/mobile/README.md).
-- `apps/console/` — kept Vue admin (canonical brand tokens in
+- `apps/console/` — kept Vue admin, repointed at Supabase (canonical brand tokens in
   `apps/console/src/theme/tokens.css`).
-- `packages/shared/` — domain types, xAPI schema, single-table key builders
-  (`keys.ts`), and the tenant guard (`tenant.ts`).
+- `packages/shared/` — domain types, xAPI schema, the Supabase-generated DB types,
+  and the tenant guard (`tenant.ts`). *(The AWS-era single-table key builders in
+  `keys.ts` are dormant — superseded by RLS; see
+  [ADR-0007](./adr/0007-supabase-backend.md).)*
 - `packages/ui/` — the **Soteria Forge UI kit**: a cross-platform React Native
   component library (ember/spark palette, Oswald/Barlow type, light/dark)
   consumed by `apps/mobile`. See [ADR-0006](./adr/0006-adopt-soteria-forge-ui-kit.md)
@@ -70,18 +76,22 @@ and the marketplace/billing model.
 
 ## The non-negotiable invariant
 
-Every data access is scoped by `TENANT#<tenantId>`, and a caller may only touch
-their own tenant's partition. The tenant comes **only** from the verified Cognito
-`custom:tenantId` claim — never from request args, body, headers, or subdomain.
-Isolation is enforced **row-level** by AppSync dynamic-group authorization
-(`allow.groupDefinedIn('tenantId')`). See
-[ADR-0003](./adr/0003-single-pool-multitenancy.md),
+A caller may only touch their own tenant's data, and **no request may ever read or
+write another tenant's data.** The tenant comes **only** from the verified session
+JWT — never from request args, body, headers, or subdomain, and clients must never
+send a `tenant_id` for authorization. Isolation is enforced **row-level by Postgres
+RLS** via `public.current_tenant_id()`, with new rows tenant-stamped by a
+`BEFORE INSERT` trigger from the verified auth context. See
+[ADR-0003](./adr/0003-single-pool-multitenancy.md) (the invariant),
+[ADR-0007](./adr/0007-supabase-backend.md) (the RLS mechanism),
 [`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md), and
-`backend/data/tenant-isolation.md`.
+`supabase/migrations/…02_rls_policies.sql`.
 
 ## Security review
 
-[`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md) records the adversarial Phase 0
-review: the cross-tenant findings that were caught, the row-level remediation
-that closed them, and the tracked residuals (S3 signed-URL mint, `adminGroup`
-stamping) that must close before regulated production use.
+[`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md) records the adversarial tenant-isolation
+review. It was written against the AWS/Amplify model; the **invariant it protects is
+unchanged**, but the enforcement it describes (AppSync dynamic groups, Lambda
+authorizer, S3 signed-URL mint, `adminGroup` stamping) is superseded by the Supabase
+RLS model ([ADR-0007](./adr/0007-supabase-backend.md)). A fresh adversarial review of
+the RLS policies is warranted before regulated production use.

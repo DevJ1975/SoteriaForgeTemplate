@@ -1,5 +1,5 @@
 /**
- * Sync engine — drains the append-only xAPI outbox to AppSync on reconnect.
+ * Sync engine — drains the append-only xAPI outbox to Supabase on reconnect.
  *
  * ============================ WHY THIS IS SIMPLE ============================
  * There is deliberately NO merge logic, NO conflict resolution, NO last-writer-
@@ -7,24 +7,25 @@
  *
  *   - Each queued item is an xAPI statement with a CLIENT-GENERATED UUID.
  *   - Statements are IMMUTABLE and APPEND-ONLY — the client never edits one after
- *     enqueue, and the server stores it under SK = STMT#<id> once.
- *   - The server createCompletionStatement mutation is IDEMPOTENT by that UUID:
- *     a second write of the same id is a no-op (a conditional put on
- *     attribute_not_exists, or an upsert of identical data).
+ *     enqueue, and `public.completion_statements` has NO update/delete policy: a
+ *     row can only ever be inserted once (PK = the client UUID).
+ *   - The upload is an UPSERT with `onConflict: 'id', ignoreDuplicates: true`: a
+ *     second write of the same id is a guaranteed no-op (INSERT ... ON CONFLICT DO
+ *     NOTHING), so re-sending is always safe.
  *
  * Therefore re-POSTing the same statement — after a flaky network, a timeout that
  * actually succeeded server-side, an app kill mid-batch, or a worker completing a
  * whole course offline and syncing hours later — can only ever converge to
  * "exactly one copy stored". Two writers can never disagree about one id because
  * the id fixes the identity and the payload never changes. So the engine's entire
- * job is: keep trying to upload each unsynced row until the server acks its UUID,
- * then flip a local `synced` flag. That is it.
+ * job is: keep trying to upload each unsynced row until the server accepts its
+ * UUID, then flip a local `synced` flag. That is it.
  * ===========================================================================
  *
  * DURABILITY: the queue is NEVER dropped on failure. A failed upload increments a
  * local attempt counter and schedules a backoff retry; the row stays put with
- * synced=false until the server acks. Nothing is lost across app restarts because
- * the outbox is on-disk SQLite (WatermelonDB).
+ * synced=false until the server accepts it. Nothing is lost across app restarts
+ * because the outbox is on-disk SQLite (WatermelonDB).
  *
  * NON-BLOCKING: sync runs off the UI. Screens read the local store; this engine
  * uploads in the background when connectivity allows and never gates the UI on a
@@ -37,6 +38,8 @@ import { database as defaultDatabase } from '../db';
 import { CompletionQueue } from './queue';
 import type { CompletionStatementModel } from '../db/models';
 import { connectivity } from './netinfo';
+import { supabase, isSupabaseConfigured } from '../supabase';
+import type { Json, TablesInsert } from '@soteria-forge/shared/supabase';
 
 // ---------------------------------------------------------------------------
 // Transport seam
@@ -44,44 +47,90 @@ import { connectivity } from './netinfo';
 
 /**
  * Result of attempting to upload one statement.
- *   - 'acked'      — server confirmed it is stored (first write OR idempotent
- *                    dedupe of an already-stored UUID). Either way: mark synced.
- *   - 'retryable'  — transient failure (offline, 5xx, timeout). Keep the row,
- *                    back off, try again.
- *   - 'rejected'   — permanent failure (e.g. a tenant-isolation refusal, a
- *                    malformed statement the server will NEVER accept). Keep the
- *                    row but stop auto-retrying; surface for inspection. This must
- *                    be rare — a well-formed, correctly-tenant-scoped statement is
- *                    never rejected.
+ *   - 'acked'      — server accepted it (first insert OR idempotent no-op on an
+ *                    already-stored UUID). Either way: mark synced.
+ *   - 'retryable'  — transient failure (offline, 5xx, timeout, network). Keep the
+ *                    row, back off, try again.
+ *   - 'rejected'   — permanent failure (e.g. an RLS refusal, a malformed statement
+ *                    the server will NEVER accept). Keep the row but stop
+ *                    auto-retrying; surface for inspection. This must be rare — a
+ *                    well-formed statement from the caller's own tenant is never
+ *                    rejected.
  */
 export type UploadOutcome = 'acked' | 'retryable' | 'rejected';
 
-/**
- * Uploads one statement to the AppSync `createCompletionStatement` mutation.
- *
- * The real implementation calls the generated Amplify Data client:
- *
- *   const client = generateClient<Schema>();
- *   await client.mutations.createCompletionStatement({ input: statement });
- *
- * The mutation is idempotent by `statement.id` server-side, so re-sending is
- * always safe. The server derives the tenant from the caller's verified
- * `custom:tenantId` claim and refuses the write if it does not match
- * `statement.tenantId` — the client passing tenantId is a convenience, the token
- * is the security boundary (see backend/ + shared/tenant.ts).
- *
- * Until backend/ ships, the default transport throws, which the engine treats as
- * 'retryable' — so the queue simply accumulates and drains once the transport is
- * wired, exactly as it will when a device is genuinely offline.
- */
-export type StatementUploader = (statement: XapiStatement) => Promise<UploadOutcome>;
+/** Per-row context the transport needs beyond the immutable statement payload. */
+export interface UploadContext {
+  /** The local `user_id` column of the queued row (the signed-in learner). */
+  userId: string;
+}
 
-/** Placeholder transport used until the AppSync client is wired (see above). */
-const notWiredUploader: StatementUploader = async () => {
-  throw new Error(
-    'AppSync createCompletionStatement transport is not wired yet. ' +
-      'Provide a StatementUploader to SyncEngine once backend/ is deployed.',
-  );
+/**
+ * Uploads one statement to `public.completion_statements` via Supabase.
+ *
+ * The write is idempotent by `statement.id` (the table's primary key + the
+ * upsert's conflict target), so re-sending is always safe. TENANT ISOLATION is
+ * enforced by Postgres, not here: a BEFORE INSERT trigger stamps `tenant_id` from
+ * the caller's verified auth context, and there is no update/delete policy, so a
+ * client cannot choose another tenant's id or mutate an existing row. We send
+ * `tenant_id`/`user_id` only because the column shape requires them; the server
+ * overrides `tenant_id` from the session regardless of what we pass — the client
+ * NEVER chooses the tenant.
+ */
+export type StatementUploader = (
+  statement: XapiStatement,
+  ctx: UploadContext,
+) => Promise<UploadOutcome>;
+
+/**
+ * Classify a PostgREST error code into a retry outcome.
+ *
+ * Auth/RLS refusals (permission denied, RLS violation) are permanent → 'rejected'.
+ * Everything else (network already handled by the throw path, transient 5xx) is
+ * treated as retryable so the durable queue simply drains later.
+ */
+function outcomeForPostgrestCode(code: string | undefined): UploadOutcome {
+  // 42501 = insufficient_privilege, 42P17 = RLS recursion; PGRST301 = JWT/permission.
+  if (code === '42501' || code === '42P17' || code === 'PGRST301') return 'rejected';
+  return 'retryable';
+}
+
+/**
+ * The default transport: upsert into `completion_statements`, ignoring duplicates
+ * by the client UUID. Append-only + idempotent, exactly as the queue guarantees.
+ */
+export const supabaseUploader: StatementUploader = async (statement, ctx) => {
+  if (!isSupabaseConfigured) {
+    // No configured backend → treat as retryable so the outbox accumulates and
+    // drains once credentials exist, just like being offline.
+    return 'retryable';
+  }
+
+  // The xAPI actor/verb/object/result/context are plain JSON-serializable values;
+  // they land in `jsonb` columns typed as `Json`. Cast at this single boundary so
+  // the structured xAPI types meet the generated column type cleanly.
+  const row: TablesInsert<'completion_statements'> = {
+    id: statement.id, // client UUID = idempotency key = primary key
+    // tenant_id is re-stamped server-side from the auth context by a BEFORE
+    // INSERT trigger; we pass the statement's own tenantId (itself derived from
+    // the verified profile) only to satisfy the column shape.
+    tenant_id: statement.tenantId,
+    user_id: ctx.userId,
+    actor: statement.actor as Json,
+    verb: statement.verb as Json,
+    object: statement.object as Json,
+    result: (statement.result ?? null) as Json | null,
+    context: (statement.context ?? null) as Json | null,
+    // `timestamp` is the xAPI ACTIVITY time; the table stores it as occurred_at.
+    occurred_at: statement.timestamp,
+  };
+
+  const { error } = await supabase
+    .from('completion_statements')
+    .upsert([row], { onConflict: 'id', ignoreDuplicates: true });
+
+  if (!error) return 'acked';
+  return outcomeForPostgrestCode(error.code);
 };
 
 // ---------------------------------------------------------------------------
@@ -153,7 +202,7 @@ export class SyncEngine {
   private unsubscribeConnectivity: (() => void) | null = null;
 
   constructor(
-    private readonly uploader: StatementUploader = notWiredUploader,
+    private readonly uploader: StatementUploader = supabaseUploader,
     private readonly db: Database = defaultDatabase,
     private readonly policy: BackoffPolicy = DEFAULT_BACKOFF,
   ) {
@@ -233,7 +282,9 @@ export class SyncEngine {
 
     let outcome: UploadOutcome;
     try {
-      outcome = await this.uploader(statement);
+      // `user_id` is a local indexing column (not part of the xAPI payload), so
+      // it is passed as context rather than embedded in the statement.
+      outcome = await this.uploader(statement, { userId: row.userId });
     } catch {
       // Any thrown error is treated as transient/retryable — we NEVER drop the
       // row on an exception; it stays queued for the next attempt.
