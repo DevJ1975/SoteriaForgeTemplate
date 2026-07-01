@@ -1,0 +1,27 @@
+{
+  "name": "@soteria-forge/backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Amplify Gen 2 (code-first) backend definition for the AWS-era Soteria Forge platform. Phase 0: defined-as-code only, not deployed.",
+  "scripts": {
+    "sandbox": "ampx sandbox",
+    "sandbox:once": "ampx sandbox --once",
+    "generate:outputs": "ampx generate outputs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.16.1",
+    "@aws-amplify/backend-cli": "^1.7.2",
+    "aws-cdk-lib": "^2.189.1",
+    "constructs": "^10.4.2",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.10.0",
+    "@types/aws-lambda": "^8.10.147"
+  },
+  "dependencies": {
+    "@soteria-forge/shared": "*",
+    "aws-amplify": "^6.15.0",
+    "aws-jwt-verify": "^4.0.1"
+  }
+}

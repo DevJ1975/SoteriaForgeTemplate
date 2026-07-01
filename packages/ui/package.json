@@ -1,5 +1,5 @@
 {
-  "name": "@soteria-forge/shared",
+  "name": "@soteria-forge/ui",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,15 +9,21 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./tokens.css": "./src/tokens.css"
   },
+  "files": [
+    "dist",
+    "src/tokens.css"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "tsc && node --test \"dist/**/*.test.js\""
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
     "typescript": "^5.9.3"
   }
 }
