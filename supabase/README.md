@@ -41,7 +41,8 @@ its own profile** — the ATL↔demo tenant boundary holds under the caller's ow
 
 `public.tenants`, `profiles` (1:1 with `auth.users`; holds `tenant_id` + `role`), `courses`,
 `modules`, `lessons`, `enrollments`, `completion_statements` (xAPI, **append-only**, PK is the
-client-generated UUID = idempotency key), `video_assets` (**metadata only** — never bytes).
+client-generated UUID = idempotency key), `video_assets` (**metadata only** — never bytes); `invitations` (pending tenant memberships,
+redeemed via `public.redeem_invitation(token)`).
 Roles: `worker | supervisor | tenant-admin | super-admin`.
 
 ## Tenant isolation — enforced by RLS (read `migrations/…02_rls_policies.sql`)
@@ -56,6 +57,24 @@ Roles: `worker | supervisor | tenant-admin | super-admin`.
   `upsert(..., { onConflict: 'id', ignoreDuplicates: true })`.
 - `super-admin` is the one cross-tenant role. Storage bucket `tenant-media` is private and
   tenant-scoped by the first path segment (`<tenant_id>/...`); access via **signed URLs**.
+
+## Joining a tenant (invitations)
+
+New users don't self-pick a tenant — they're **invited** into one. The flow (migration `06`):
+
+1. A **tenant-admin** creates an invitation for an email + role — `insert into invitations`.
+   RLS allows this only for `tenant-admin`/`super-admin`; the `tenant_id` + `invited_by` are
+   **stamped from the admin's verified session**, never chosen by the client. A worker attempting
+   this is rejected by RLS (verified live: SQLSTATE `42501`).
+2. The invitee **signs up / signs in** via Supabase Auth (gets an `auth.users` row, no profile yet).
+3. On first sign-in they call **`redeem_invitation(token)`** — a `SECURITY DEFINER` function that
+   validates the token is pending, unexpired, and issued to *their verified email*, then creates
+   their `profiles` row in the invite's tenant + role. Idempotent (an existing profile is returned
+   unchanged, so a member can never be silently re-tenanted).
+
+Verified live end-to-end: admin invites → new user redeems → provisioned as an ATL worker who then
+sees exactly the ATL course. The **first** admin of a brand-new tenant is provisioned out-of-band
+(seed / a `super-admin` tool), since there is no admin yet to invite them.
 
 ## Keys
 
