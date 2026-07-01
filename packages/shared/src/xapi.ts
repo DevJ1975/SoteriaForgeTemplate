@@ -1,6 +1,6 @@
 /**
  * xAPI completion statements — the append-only, idempotent record of learning
- * activity for the AWS-era platform.
+ * activity.
  *
  * CONTRACT:
  *   A completion statement is {
@@ -15,8 +15,9 @@
  *     never disagree about the same id.
  *
  * The client generates the id so that an offline device can create a statement,
- * queue it, and sync later with a stable identity. Storage is
- * SK = STMT#<id> under PK = TENANT#<tenantId> (see keys.ts `stmtSk`).
+ * queue it, and sync later with a stable identity. In the Supabase schema the id
+ * is the PRIMARY KEY of `completion_statements` (append-only), so the same id
+ * dedupes idempotently on sync — `upsert(..., { onConflict: 'id', ignoreDuplicates: true })`.
  */
 
 // ---------------------------------------------------------------------------

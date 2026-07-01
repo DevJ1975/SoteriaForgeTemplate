@@ -1,23 +1,25 @@
 /**
- * @soteria-forge/shared — canonical domain model for the AWS-era Soteria Forge
- * platform.
+ * @soteria-forge/shared — canonical domain model for the Soteria Forge platform.
  *
  * This barrel re-exports every focused module. The public surface is a strict
  * SUPERSET of the legacy exports: everything apps/console imported before
  * (AuthSessionDTO, CourseBundleDTO, CourseDTO, ProductPackageDTO, TenantDTO,
  * normalizeTenantSlug, hasRequiredRole, the xAPI types, …) is still exported
- * from '@soteria-forge/shared'. New AWS-era pieces are added alongside them.
+ * from '@soteria-forge/shared'.
+ *
+ * Backend note: tenant isolation is now enforced by Postgres RLS (see ADR-0007).
+ * The AWS-era single-table key builders (`keys.ts`) and the Cognito adminGroup
+ * stamp (`stampTenantOwnership`) have been pruned — they had no remaining callers.
+ * The Supabase DB types + row aliases live under the `./supabase` subpath export.
  *
  * Modules:
- *   domain — DTOs (legacy + AWS-era single-table records) and domain helpers
- *   roles  — Cognito group model + legacy UserRole mapping and guards
- *   keys   — single-table PK/SK builders + parsers
+ *   domain — DTOs (course/module/lesson/user/enrollment records) and helpers
+ *   roles  — role group model + legacy UserRole mapping and guards
  *   tenant — the tenant-isolation guard (assertTenantMatch / isSameTenant)
  *   xapi   — xAPI completion-statement types, verbs, and builders
  */
 
 export * from './domain.js'
 export * from './roles.js'
-export * from './keys.js'
 export * from './tenant.js'
 export * from './xapi.js'

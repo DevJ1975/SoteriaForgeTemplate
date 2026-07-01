@@ -138,15 +138,16 @@ Supabase/Cloudflare split.
 - **The publishable key is exposed to clients by design** — its safety depends
   entirely on RLS being correct and enabled everywhere. The service-role key is
   now the crown-jewel secret to keep out of source and clients.
-- **AWS-era artifacts are now dormant.** The DynamoDB single-table key builders
+- **AWS-era artifacts have now been pruned.** The DynamoDB single-table key builders
   (`packages/shared/src/keys.ts`: `tenantPk`/`userSk`/`courseSk`/… and
   `parseSk`) and the Cognito `adminGroup` tenant-stamping helper
-  (`stampTenantOwnership` in the shared tenant module) were built for the AWS
-  model and are **superseded**. They should be treated as **retained-but-dormant
-  and pruned** once no client references them — leaving them in place invites
-  drift and false signal that a single-table/Cognito model is still live. (The
-  canonical `assertTenantMatch` / `isSameTenant` guard remains useful as a
-  generic same-tenant check.)
+  (`stampTenantOwnership` and its `tenantAdminGroup`/`ADMIN_GROUP_PREFIX` support
+  in the shared tenant module) were built for the AWS model and were **superseded**
+  by RLS. Once verified to have **no remaining callers** (no `apps/**` references),
+  they were **removed** (git history preserves them) — leaving them in place would
+  have invited drift and false signal that a single-table/Cognito model is still
+  live. The canonical `assertTenantMatch` / `isSameTenant` guard was **retained** as
+  a generic, RLS-independent same-tenant check.
 - Postgres connection limits, RLS-policy performance, and Supabase's managed
   quotas are the new shared-capacity concerns in place of Cognito quotas and
   DynamoDB hot-partition behavior.

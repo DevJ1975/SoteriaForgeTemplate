@@ -1,9 +1,9 @@
 # `@soteria-forge/shared` — the domain contract
 
-This package is the **single source of truth** for the domain model, the single-table key
-design, the tenant-isolation guard, the xAPI statement contract, and the role bridge. Mobile,
-console, backend, video, and offline-sync all depend on what this package exports — so treat
-every export as a **public contract**. Additive changes are cheap; breaking changes ripple
+This package is the **single source of truth** for the domain model, the tenant-isolation guard,
+the xAPI statement contract, the role bridge, and the Supabase DB types (under the `./supabase`
+subpath). Mobile, console, video, and offline-sync all depend on what this package exports — so
+treat every export as a **public contract**. Additive changes are cheap; breaking changes ripple
 everywhere and must be called out.
 
 Owned primarily by the **api-data** agent. See root `../../CLAUDE.md` for the shared contract.
@@ -13,30 +13,26 @@ Owned primarily by the **api-data** agent. See root `../../CLAUDE.md` for the sh
 | File | Owns |
 |------|------|
 | `src/domain.ts` | Domain records/DTOs (Course/Module/Lesson/User/Enrollment, `UserRole`). |
-| `src/keys.ts` | Single-table PK/SK builders + `skPrefixes` + `parseSk`. **The only way keys are made.** |
 | `src/tenant.ts` | `isSameTenant` / `assertTenantMatch` / `TenantIsolationError`. **The isolation guard.** |
 | `src/xapi.ts` | xAPI statement types + `generateStatementId` / `createCompletionStatement`. |
-| `src/roles.ts` | Cognito-group ⇄ legacy-`UserRole` bridge. |
+| `src/roles.ts` | Role-group ⇄ legacy-`UserRole` bridge. |
+| `src/supabase/` | Generated Supabase DB types + row/insert/update aliases (`./supabase` subpath). |
 | `src/index.ts` | The public barrel — everything consumers import. |
 | `src/__tests__/` | `node --test` unit tests (run via `npm run test`). |
 
-## Key design (do not drift)
-
-- `PK = TENANT#<tenantId>`; SK vocabulary and GSIs are documented in `keys.ts` and the root
-  `CLAUDE.md`. Every builder round-trips with `parseSk` — if you add an entity, add its builder,
-  its `skPrefixes` entry, and its `parseSk` case **together**, with a round-trip test.
-- `assertSegment` rejects empty ids and any id containing the `#` delimiter. Never relax this: a
-  raw `#` inside an id would corrupt parsing and could forge a key that crosses an entity
-  boundary. Fail loud.
+> **Pruned (ADR-0007):** `src/keys.ts` (the AWS single-table PK/SK builders) and the Cognito
+> `adminGroup` stamp (`stampTenantOwnership` et al. in `tenant.ts`) were superseded by Postgres RLS
+> and **removed** once no client referenced them. Do not reintroduce hand-rolled keys — tenant
+> scoping and insert-stamping are the database's job now.
 
 ## Tenant guard (do not weaken)
 
 `isSameTenant`/`assertTenantMatch` use **strict verbatim equality**, return/deny on any
 empty/nullish input, and contain **no normalization, no wildcard, no super-admin bypass**.
-`claimTenantId` is ALWAYS the verified token claim; `targetTenantId` is derived from the key or
-the loaded record — never from request input. The Lambda authorizer
-(`backend/functions/tenant-authorizer/handler.ts`) inlines a byte-for-byte-equivalent mirror; if
-you change the guard here, the mirror MUST change identically — flag it to security-reviewer.
+`claimTenantId` is ALWAYS the verified session tenant (`profiles.tenant_id`); `targetTenantId` is
+derived from the loaded record — never from request input. **Primary isolation is Postgres RLS**
+(see root `CLAUDE.md`); this guard is a retained defensive utility, not the enforcement point. Any
+change to it still goes through security-reviewer.
 
 ## xAPI (append-only, idempotent)
 
@@ -64,7 +60,6 @@ npm run typecheck  --workspace @soteria-forge/shared
 npm run test       --workspace @soteria-forge/shared   # compiles then `node --test dist/**/*.test.js`
 ```
 
-Build this package **before** type-checking any consumer (mobile/console/backend) — their
-type-checks read this package's `dist/` declarations. Ship tests for every new key builder,
-parse round-trip, tenant-guard edge case, and UUID validation. No secrets in fixtures — use
-placeholder ids.
+Build this package **before** type-checking any consumer (mobile/console) — their type-checks read
+this package's `dist/` declarations. Ship tests for every new domain helper, tenant-guard edge
+case, and UUID validation. No secrets in fixtures — use placeholder ids.

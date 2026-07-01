@@ -6,7 +6,6 @@
  * "test" script). Assertions use node:assert/strict only.
  *
  * Coverage:
- *   - key builders round-trip through parseSk
  *   - assertTenantMatch throws on mismatch, passes on match; isSameTenant predicate
  *   - completion-statement idempotency key stability (id, not timestamp)
  */
@@ -15,26 +14,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  // keys
-  tenantPk,
-  parseTenantPk,
-  tenantMetaSk,
-  userSk,
-  courseSk,
-  moduleSk,
-  lessonSk,
-  enrollmentSk,
-  stmtSk,
-  videoSk,
-  parseSk,
-  primaryKey,
   // tenant
   assertTenantMatch,
   isSameTenant,
   TenantIsolationError,
-  tenantAdminGroup,
-  stampTenantOwnership,
-  ADMIN_GROUP_PREFIX,
   // xapi
   createCompletionStatement,
   statementIdempotencyKey,
@@ -48,91 +31,6 @@ import {
   userRoleToGroup,
   normalizeGroups,
 } from '../index.js'
-
-// ---------------------------------------------------------------------------
-// keys: builders round-trip via parseSk
-// ---------------------------------------------------------------------------
-
-test('tenantPk builds and parseTenantPk round-trips', () => {
-  const pk = tenantPk('acme')
-  assert.equal(pk, 'TENANT#acme')
-  assert.equal(parseTenantPk(pk), 'acme')
-  assert.equal(parseTenantPk('WRONG#acme'), null)
-  assert.equal(parseTenantPk('TENANT'), null)
-})
-
-test('tenantMetaSk parses to TENANT_META', () => {
-  const sk = tenantMetaSk()
-  assert.equal(sk, 'TENANT#META')
-  assert.deepEqual(parseSk(sk), { entityType: 'TENANT_META' })
-})
-
-test('userSk round-trips', () => {
-  const sk = userSk('u-1')
-  assert.equal(sk, 'USER#u-1')
-  assert.deepEqual(parseSk(sk), { entityType: 'USER', userId: 'u-1' })
-})
-
-test('courseSk round-trips', () => {
-  const sk = courseSk('c-1')
-  assert.equal(sk, 'COURSE#c-1')
-  assert.deepEqual(parseSk(sk), { entityType: 'COURSE', courseId: 'c-1' })
-})
-
-test('moduleSk round-trips', () => {
-  const sk = moduleSk('c-1', 'm-1')
-  assert.equal(sk, 'MODULE#c-1#m-1')
-  assert.deepEqual(parseSk(sk), { entityType: 'MODULE', courseId: 'c-1', moduleId: 'm-1' })
-})
-
-test('lessonSk round-trips', () => {
-  const sk = lessonSk('c-1', 'm-1', 'l-1')
-  assert.equal(sk, 'LESSON#c-1#m-1#l-1')
-  assert.deepEqual(parseSk(sk), {
-    entityType: 'LESSON',
-    courseId: 'c-1',
-    moduleId: 'm-1',
-    lessonId: 'l-1',
-  })
-})
-
-test('enrollmentSk round-trips', () => {
-  const sk = enrollmentSk('u-1', 'c-1')
-  assert.equal(sk, 'ENROLLMENT#u-1#c-1')
-  assert.deepEqual(parseSk(sk), { entityType: 'ENROLLMENT', userId: 'u-1', courseId: 'c-1' })
-})
-
-test('stmtSk round-trips', () => {
-  const sk = stmtSk('11111111-1111-4111-8111-111111111111')
-  assert.equal(sk, 'STMT#11111111-1111-4111-8111-111111111111')
-  assert.deepEqual(parseSk(sk), {
-    entityType: 'STATEMENT',
-    statementId: '11111111-1111-4111-8111-111111111111',
-  })
-})
-
-test('videoSk round-trips', () => {
-  const sk = videoSk('v-1')
-  assert.equal(sk, 'VIDEO#v-1')
-  assert.deepEqual(parseSk(sk), { entityType: 'VIDEO', videoId: 'v-1' })
-})
-
-test('parseSk returns null for unknown or malformed keys', () => {
-  assert.equal(parseSk('BOGUS#x'), null)
-  assert.equal(parseSk('MODULE#only-one'), null)
-  assert.equal(parseSk('TENANT#not-meta'), null)
-  assert.equal(parseSk('USER#'), null)
-})
-
-test('key builders reject empty and delimiter-bearing ids', () => {
-  assert.throws(() => userSk(''), /non-empty/)
-  assert.throws(() => courseSk('c#evil'), /delimiter/)
-  assert.throws(() => moduleSk('c-1', 'm#x'), /delimiter/)
-})
-
-test('primaryKey composes PK and SK', () => {
-  assert.deepEqual(primaryKey('acme', courseSk('c-1')), { PK: 'TENANT#acme', SK: 'COURSE#c-1' })
-})
 
 // ---------------------------------------------------------------------------
 // tenant: isolation guard
@@ -167,43 +65,6 @@ test('assertTenantMatch throws TenantIsolationError on mismatch', () => {
 test('assertTenantMatch throws when claim is missing (never coerces to match)', () => {
   assert.throws(() => assertTenantMatch(undefined, 'acme'), TenantIsolationError)
   assert.throws(() => assertTenantMatch('', ''), TenantIsolationError)
-})
-
-// ---------------------------------------------------------------------------
-// tenant: server-side ownership STAMP
-// ---------------------------------------------------------------------------
-
-test('tenantAdminGroup builds admin::<tenantId>', () => {
-  assert.equal(tenantAdminGroup('acme'), 'admin::acme')
-  assert.equal(ADMIN_GROUP_PREFIX, 'admin::')
-})
-
-test('tenantAdminGroup rejects empty and whitespace-only ids', () => {
-  assert.throws(() => tenantAdminGroup(''), TenantIsolationError)
-  assert.throws(() => tenantAdminGroup('   '), TenantIsolationError)
-})
-
-test('tenantAdminGroup rejects ids containing the # delimiter', () => {
-  assert.throws(() => tenantAdminGroup('acme#evil'), TenantIsolationError)
-})
-
-test('stampTenantOwnership derives tenantId and adminGroup from the single claim', () => {
-  const stamp = stampTenantOwnership('acme')
-  assert.deepEqual(stamp, { tenantId: 'acme', adminGroup: 'admin::acme' })
-})
-
-test('stampTenantOwnership: adminGroup prefix is exactly admin:: and pairs the same id', () => {
-  const stamp = stampTenantOwnership('globex')
-  // adminGroup is prefix + the exact same id used for tenantId — they cannot diverge.
-  assert.equal(stamp.adminGroup, `admin::${stamp.tenantId}`)
-  assert.ok(stamp.adminGroup.startsWith('admin::'))
-  assert.equal(stamp.adminGroup.slice('admin::'.length), stamp.tenantId)
-})
-
-test('stampTenantOwnership rejects empty, whitespace, and delimiter-bearing claims', () => {
-  assert.throws(() => stampTenantOwnership(''), TenantIsolationError)
-  assert.throws(() => stampTenantOwnership('  '), TenantIsolationError)
-  assert.throws(() => stampTenantOwnership('acme#globex'), TenantIsolationError)
 })
 
 // ---------------------------------------------------------------------------

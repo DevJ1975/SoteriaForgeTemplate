@@ -35,12 +35,12 @@ A normal relational schema in `public`: `tenants`, `profiles` (1:1 with `auth.us
 only** — never video bytes). Roles: `worker | supervisor | tenant-admin | super-admin`. The schema,
 RLS policies, storage rules, and seed live in `supabase/migrations/` + `supabase/seed.sql`.
 
-> **AWS-era, now dormant:** the single-table DynamoDB key builders in
-> `packages/shared/src/keys.ts` (`tenantPk`, `userSk`, `courseSk`, `moduleSk`, `lessonSk`,
-> `enrollmentSk`, `stmtSk`, `videoSk`, `parseSk`) and the Cognito `adminGroup` stamping helper
-> (`stampTenantOwnership`) were built for the AWS model and are **superseded** by RLS. Treat them as
-> retained-but-dormant and prune once no client references them (see
-> [ADR-0007](docs/adr/0007-supabase-backend.md)).
+> **AWS-era code, now pruned:** the single-table DynamoDB key builders
+> (`packages/shared/src/keys.ts`) and the Cognito `adminGroup` stamping helper
+> (`stampTenantOwnership` in `tenant.ts`) were built for the AWS model and are **superseded** by
+> RLS. They had no remaining callers and have been **removed** (git history preserves them; see
+> [ADR-0007](docs/adr/0007-supabase-backend.md)). The tenant-equality guard
+> (`isSameTenant`/`assertTenantMatch`) is retained as a defensive, RLS-independent utility.
 
 ## Tenant isolation invariant (the #1 rule — non-negotiable)
 
