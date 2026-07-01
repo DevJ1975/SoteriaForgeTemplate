@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { BookOpenCheck, Building2, CopyPlus, FileStack, KeyRound, LibraryBig, MailPlus, RadioTower, Rocket, ShieldCheck, UserPlus, WandSparkles } from '@lucide/vue'
-import { normalizeTenantSlug, type CourseDTO, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { BookOpenCheck, Building2, ClipboardList, CopyPlus, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, MailPlus, Plus, RadioTower, Rocket, ShieldCheck, Trash2, UserPlus, Users, WandSparkles } from '@lucide/vue'
+import { normalizeTenantSlug, type CourseDTO, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
-import { consoleApi, INVITABLE_ROLES, type InvitableRole } from './services/api'
-import type { InvitationRow } from '@soteria-forge/shared/supabase'
+import {
+  consoleApi,
+  INVITABLE_ROLES,
+  type CourseEnrollment,
+  type CreateCourseInput,
+  type InvitableRole,
+  type TenantMember,
+} from './services/api'
+import type { CourseRow, InvitationRow, LessonRow, ModuleRow } from '@soteria-forge/shared/supabase'
 
 const tenantName = ref('Acme Industrial Services')
 const tenantSlug = computed(() => normalizeTenantSlug(tenantName.value))
@@ -40,6 +47,32 @@ const canInvite = computed(() =>
 const canProvisionTenant = computed(() =>
   (currentUser.value?.roles ?? []).includes('superadmin'),
 )
+
+// Authoring content (courses/modules/lessons) and enrolling workers is a
+// tenant-admin action. Like `canInvite`, both the legacy `admin` (tenant-admin)
+// and `superadmin` (super-admin) roles qualify — reuse the same ADMIN_ROLES
+// bridge rather than hardcoding a role string. RLS is the real gate server-side
+// (only tenant-admin/super-admin may write courses/modules/lessons/enrollments,
+// SQLSTATE 42501 for anyone else); this computed only decides whether the
+// affordance is shown.
+const canManageContent = computed(() =>
+  (currentUser.value?.roles ?? []).some((role) => ADMIN_ROLES.includes(role)),
+)
+
+// ── View switching ────────────────────────────────────────────────────────────
+// The console is a single shell; nav items switch which workspace view renders.
+// 'dashboard' is the original all-panels screen (unchanged); 'courses' and
+// 'roster' are the new content-authoring + enrollment views (admin-gated).
+type ConsoleView = 'dashboard' | 'courses' | 'roster'
+const activeView = ref<ConsoleView>('dashboard')
+
+function goTo(view: ConsoleView) {
+  activeView.value = view
+  // Lazily hydrate the authoring/roster data the first time an admin opens one
+  // of the new views. Declared below; forward-referenced here (both are in scope
+  // by the time this runs).
+  if (view === 'courses' || view === 'roster') void ensureContentLoaded()
+}
 
 // Friendly labels for the stored group-vocabulary invite roles.
 const INVITE_ROLE_LABELS: Record<InvitableRole, string> = {
@@ -304,6 +337,301 @@ async function convertSelectedTenant() {
   await loadTenants()
 }
 
+// ── Content authoring (Courses view) ──────────────────────────────────────────
+// A tenant-admin authors courses → modules → lessons. All writes are RLS-gated
+// server-side; no tenant is ever sent from the UI for authorization.
+const COURSE_STATUS_OPTIONS: readonly { value: CourseDTO['status']; label: string }[] = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'published', label: 'Published' },
+  { value: 'archived', label: 'Archived' },
+]
+const LESSON_KIND_OPTIONS: readonly { value: LessonKind; label: string }[] = [
+  { value: 'video', label: 'Video' },
+  { value: 'quiz', label: 'Quiz' },
+  { value: 'document', label: 'Document' },
+  { value: 'reflection', label: 'Reflection' },
+  { value: 'practical-signoff', label: 'Practical sign-off' },
+]
+
+const courseList = ref<CourseRow[]>([])
+const contentError = ref('')
+
+// New-course form.
+const newCourse = ref<CreateCourseInput & { tagsText: string }>({
+  title: '',
+  description: '',
+  category: '',
+  status: 'draft',
+  durationMinutes: undefined,
+  tags: [],
+  tagsText: '',
+})
+
+// The currently-open course editor (its tree), or null when just listing.
+const selectedCourse = ref<CourseRow | null>(null)
+const editorModules = ref<ModuleRow[]>([])
+const editorLessons = ref<LessonRow[]>([])
+
+// Add-module form (title only; sequence auto-derives from the current count).
+const newModuleTitle = ref('')
+// Add-lesson forms, keyed by module id so each module has its own draft row.
+type LessonDraft = {
+  kind: LessonKind
+  title: string
+  durationMinutes: number
+  required: boolean
+  passingScore: number | null
+}
+// One add-lesson draft per module id, kept in a reactive map so each module's
+// inline "add lesson" row binds independently. Drafts are SEEDED explicitly when
+// modules load/add (below), so the template only ever reads them — never mutates
+// state during render.
+const lessonDrafts = reactive<Record<string, LessonDraft>>({})
+
+function newLessonDraft(): LessonDraft {
+  return { kind: 'video', title: '', durationMinutes: 5, required: true, passingScore: null }
+}
+
+/** Ensure a draft exists for a module id (call outside render, e.g. on load). */
+function seedLessonDraft(moduleId: string) {
+  if (!lessonDrafts[moduleId]) lessonDrafts[moduleId] = newLessonDraft()
+}
+
+/** Read a module's draft. Callers seed it first; falls back defensively. */
+function lessonDraftFor(moduleId: string): LessonDraft {
+  return lessonDrafts[moduleId] ?? newLessonDraft()
+}
+
+function lessonsForModule(moduleId: string): LessonRow[] {
+  return editorLessons.value
+    .filter((lesson) => lesson.module_id === moduleId)
+    .sort((a, b) => a.sequence - b.sequence)
+}
+
+async function loadCourses() {
+  if (!canManageContent.value) {
+    courseList.value = []
+    return
+  }
+  contentError.value = ''
+  try {
+    const { courses } = await consoleApi.listCourses()
+    courseList.value = courses
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to load courses'
+  }
+}
+
+async function createCourse() {
+  contentError.value = ''
+  const title = newCourse.value.title.trim()
+  if (!title) {
+    contentError.value = 'Enter a course title.'
+    return
+  }
+  const tags = newCourse.value.tagsText
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+  status.value = `Creating course ${title}`
+  try {
+    const { course } = await consoleApi.createCourseHeader({
+      title,
+      description: newCourse.value.description?.trim() || undefined,
+      category: newCourse.value.category?.trim() || undefined,
+      status: newCourse.value.status,
+      durationMinutes: newCourse.value.durationMinutes,
+      tags,
+    })
+    courseList.value = [course, ...courseList.value]
+    newCourse.value = { title: '', description: '', category: '', status: 'draft', durationMinutes: undefined, tags: [], tagsText: '' }
+    status.value = `Created course ${course.title}`
+    await openCourse(course)
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to create course'
+    status.value = 'Course creation failed'
+  }
+}
+
+async function openCourse(course: CourseRow) {
+  contentError.value = ''
+  selectedCourse.value = course
+  newModuleTitle.value = ''
+  // Reset all add-lesson drafts from any previously-open course.
+  for (const key of Object.keys(lessonDrafts)) delete lessonDrafts[key]
+  try {
+    const tree = await consoleApi.getCourseTree(course.id)
+    selectedCourse.value = tree.course
+    editorModules.value = tree.modules
+    editorLessons.value = tree.lessons
+    // Seed one draft per module so the template only reads them (no mutate-on-render).
+    for (const module of tree.modules) seedLessonDraft(module.id)
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to open course'
+  }
+}
+
+function closeCourse() {
+  selectedCourse.value = null
+  editorModules.value = []
+  editorLessons.value = []
+  for (const key of Object.keys(lessonDrafts)) delete lessonDrafts[key]
+}
+
+async function addModule() {
+  if (!selectedCourse.value) return
+  const title = newModuleTitle.value.trim()
+  if (!title) {
+    contentError.value = 'Enter a module title.'
+    return
+  }
+  contentError.value = ''
+  try {
+    // Next sequence = current module count (0-based, appended at the end).
+    const { module } = await consoleApi.createModule(selectedCourse.value.id, {
+      title,
+      sequence: editorModules.value.length,
+    })
+    editorModules.value = [...editorModules.value, module]
+    seedLessonDraft(module.id)
+    newModuleTitle.value = ''
+    status.value = `Added module ${module.title}`
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to add module'
+  }
+}
+
+async function removeModule(module: ModuleRow) {
+  contentError.value = ''
+  try {
+    await consoleApi.deleteModule(module.id)
+    editorModules.value = editorModules.value.filter((row) => row.id !== module.id)
+    // The DB cascades child lessons; drop them from local state to match.
+    editorLessons.value = editorLessons.value.filter((lesson) => lesson.module_id !== module.id)
+    delete lessonDrafts[module.id]
+    status.value = `Removed module ${module.title}`
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to remove module'
+  }
+}
+
+async function addLesson(module: ModuleRow) {
+  if (!selectedCourse.value) return
+  const draft = lessonDraftFor(module.id)
+  const title = draft.title.trim()
+  if (!title) {
+    contentError.value = 'Enter a lesson title.'
+    return
+  }
+  contentError.value = ''
+  try {
+    const { lesson } = await consoleApi.createLesson({
+      courseId: selectedCourse.value.id,
+      moduleId: module.id,
+      kind: draft.kind,
+      title,
+      durationMinutes: Number(draft.durationMinutes) || 0,
+      required: draft.required,
+      sequence: lessonsForModule(module.id).length,
+      passingScore: draft.passingScore ?? undefined,
+    })
+    editorLessons.value = [...editorLessons.value, lesson]
+    // Reset this module's draft in place (keeps the reactive binding stable).
+    lessonDrafts[module.id] = newLessonDraft()
+    status.value = `Added lesson ${lesson.title}`
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to add lesson'
+  }
+}
+
+async function removeLesson(lesson: LessonRow) {
+  contentError.value = ''
+  try {
+    await consoleApi.deleteLesson(lesson.id)
+    editorLessons.value = editorLessons.value.filter((row) => row.id !== lesson.id)
+    status.value = `Removed lesson ${lesson.title}`
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to remove lesson'
+  }
+}
+
+// ── Roster & enrollment view ───────────────────────────────────────────────────
+const members = ref<TenantMember[]>([])
+const rosterError = ref('')
+const rosterCourseId = ref('')
+const selectedMemberIds = ref<string[]>([])
+const courseEnrollments = ref<CourseEnrollment[]>([])
+
+const selectedRosterCourse = computed(() =>
+  courseList.value.find((course) => course.id === rosterCourseId.value) ?? null,
+)
+
+function toggleMember(userId: string) {
+  selectedMemberIds.value = selectedMemberIds.value.includes(userId)
+    ? selectedMemberIds.value.filter((id) => id !== userId)
+    : [...selectedMemberIds.value, userId]
+}
+
+async function loadRoster() {
+  if (!canManageContent.value) {
+    members.value = []
+    return
+  }
+  rosterError.value = ''
+  try {
+    const { members: roster } = await consoleApi.listMembers()
+    members.value = roster
+  } catch (error) {
+    rosterError.value = error instanceof Error ? error.message : 'Unable to load members'
+  }
+}
+
+async function loadCourseEnrollments() {
+  if (!rosterCourseId.value) {
+    courseEnrollments.value = []
+    return
+  }
+  rosterError.value = ''
+  try {
+    const { enrollments } = await consoleApi.listCourseEnrollments(rosterCourseId.value)
+    courseEnrollments.value = enrollments
+  } catch (error) {
+    rosterError.value = error instanceof Error ? error.message : 'Unable to load enrollments'
+  }
+}
+
+async function assignSelected() {
+  rosterError.value = ''
+  if (!rosterCourseId.value) {
+    rosterError.value = 'Pick a course to assign.'
+    return
+  }
+  if (!selectedMemberIds.value.length) {
+    rosterError.value = 'Select at least one member to assign.'
+    return
+  }
+  status.value = 'Assigning course'
+  try {
+    const { assigned } = await consoleApi.assignCourse(rosterCourseId.value, selectedMemberIds.value)
+    status.value = `Assigned course to ${assigned} member(s)`
+    selectedMemberIds.value = []
+    await loadCourseEnrollments()
+  } catch (error) {
+    // Surface RLS rejection (non-admin) and any validation error inline.
+    rosterError.value = error instanceof Error ? error.message : 'Unable to assign course'
+    status.value = 'Assignment failed'
+  }
+}
+
+// Load the content-authoring + roster data once, lazily, when an admin first
+// opens either view (keeps a non-admin session from firing RLS-empty calls).
+const contentLoaded = ref(false)
+async function ensureContentLoaded() {
+  if (contentLoaded.value || !canManageContent.value) return
+  contentLoaded.value = true
+  await Promise.all([loadCourses(), loadRoster()])
+}
+
 onMounted(async () => {
   // Restore any persisted Supabase session (auth.persistSession) instead of a
   // localStorage bearer token. RLS re-derives the tenant from the session.
@@ -329,10 +657,12 @@ onMounted(async () => {
         <img :src="forgeLogo" alt="Soteria FORGE" />
       </div>
       <nav>
-        <button class="nav-active" type="button"><Building2 :size="18" /> Tenants</button>
+        <button :class="{ 'nav-active': activeView === 'dashboard' }" type="button" @click="goTo('dashboard')"><Building2 :size="18" /> Tenants</button>
         <button type="button"><LibraryBig :size="18" /> Global Library</button>
         <button type="button"><ShieldCheck :size="18" /> Packages</button>
         <button type="button"><WandSparkles :size="18" /> Course Creator</button>
+        <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'courses' }" type="button" @click="goTo('courses')"><GraduationCap :size="18" /> Courses</button>
+        <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'roster' }" type="button" @click="goTo('roster')"><Users :size="18" /> Roster &amp; Enrollment</button>
         <button v-if="canProvisionTenant" type="button"><Rocket :size="18" /> Provision Tenant</button>
         <button v-if="canInvite" type="button"><UserPlus :size="18" /> Invite Users</button>
         <button type="button"><RadioTower :size="18" /> Sync Health</button>
@@ -369,6 +699,7 @@ onMounted(async () => {
         <button class="primary-action" type="button" @click="login">Sign In</button>
       </section>
 
+      <template v-if="activeView === 'dashboard'">
       <section class="console-grid">
         <article class="panel">
           <h2>Tenant provisioning</h2>
@@ -611,6 +942,200 @@ onMounted(async () => {
           </div>
         </div>
       </section>
+      </template>
+
+      <!-- ── Courses view (content authoring) ────────────────────────────── -->
+      <template v-if="activeView === 'courses' && isLoggedIn && canManageContent">
+        <section class="content-panel panel">
+          <h2>New course</h2>
+          <p>
+            Author a course for your tenant. It is stamped to your tenant server-side (RLS); no
+            tenant is chosen here. Add modules and lessons after it is created.
+          </p>
+          <div class="content-form">
+            <label>
+              Title
+              <input v-model="newCourse.title" type="text" placeholder="Confined Space Entry Refresher" autocomplete="off" />
+            </label>
+            <label>
+              Category
+              <input v-model="newCourse.category" type="text" placeholder="Safety" autocomplete="off" />
+            </label>
+            <label>
+              Status
+              <select v-model="newCourse.status">
+                <option v-for="option in COURSE_STATUS_OPTIONS" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+            <label>
+              Duration (minutes)
+              <input v-model.number="newCourse.durationMinutes" type="number" min="0" placeholder="30" />
+            </label>
+            <label class="content-form-wide">
+              Description
+              <textarea v-model="newCourse.description" rows="2" placeholder="What this course covers"></textarea>
+            </label>
+            <label class="content-form-wide">
+              Tags (comma-separated)
+              <input v-model="newCourse.tagsText" type="text" placeholder="field-ready, supervisor-signoff" autocomplete="off" />
+            </label>
+            <button class="primary-action content-form-submit" type="button" @click="createCourse">
+              <Plus :size="18" aria-hidden="true" />
+              Create Course
+            </button>
+          </div>
+          <p v-if="contentError" class="content-error" role="alert">{{ contentError }}</p>
+        </section>
+
+        <section class="tenant-list panel">
+          <h2>Tenant courses</h2>
+          <p v-if="!courseList.length" class="content-empty">No courses yet. Create one above.</p>
+          <div v-else class="module-list">
+            <button
+              v-for="course in courseList"
+              :key="course.id"
+              class="content-row"
+              type="button"
+              :class="{ 'content-row-active': selectedCourse?.id === course.id }"
+              @click="openCourse(course)"
+            >
+              <GraduationCap :size="16" aria-hidden="true" />
+              <span>{{ course.title }}</span>
+              <small>{{ course.status }}</small>
+            </button>
+          </div>
+        </section>
+
+        <section v-if="selectedCourse" class="content-editor panel">
+          <div class="content-editor-head">
+            <div>
+              <h2>{{ selectedCourse.title }}</h2>
+              <p class="content-hint">{{ selectedCourse.status }} · {{ editorModules.length }} module(s)</p>
+            </div>
+            <button class="secondary-action content-close" type="button" @click="closeCourse">Close</button>
+          </div>
+
+          <div class="content-add-module">
+            <label>
+              New module title
+              <input v-model="newModuleTitle" type="text" placeholder="Before Entry" autocomplete="off" />
+            </label>
+            <button class="primary-action" type="button" @click="addModule">
+              <FolderPlus :size="18" aria-hidden="true" />
+              Add Module
+            </button>
+          </div>
+
+          <p v-if="!editorModules.length" class="content-empty">No modules yet. Add one above.</p>
+
+          <div v-for="module in editorModules" :key="module.id" class="content-module">
+            <div class="content-module-head">
+              <FileStack :size="16" aria-hidden="true" />
+              <span class="content-module-title">{{ module.title }}</span>
+              <small>seq {{ module.sequence }}</small>
+              <button class="content-icon-btn" type="button" title="Remove module" @click="removeModule(module)">
+                <Trash2 :size="15" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div class="content-lessons">
+              <div v-for="lesson in lessonsForModule(module.id)" :key="lesson.id" class="content-lesson-row">
+                <ListChecks :size="14" aria-hidden="true" />
+                <span class="content-lesson-title">{{ lesson.title }}</span>
+                <small>{{ lesson.kind }} · {{ lesson.duration_minutes }}m{{ lesson.required ? ' · required' : '' }}</small>
+                <button class="content-icon-btn" type="button" title="Remove lesson" @click="removeLesson(lesson)">
+                  <Trash2 :size="14" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            <div class="content-add-lesson">
+              <select v-model="lessonDraftFor(module.id).kind" aria-label="Lesson kind">
+                <option v-for="option in LESSON_KIND_OPTIONS" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <input v-model="lessonDraftFor(module.id).title" type="text" placeholder="Lesson title" autocomplete="off" />
+              <input v-model.number="lessonDraftFor(module.id).durationMinutes" type="number" min="0" placeholder="min" aria-label="Duration minutes" />
+              <label class="content-required-toggle">
+                <input v-model="lessonDraftFor(module.id).required" type="checkbox" />
+                Required
+              </label>
+              <input v-model.number="lessonDraftFor(module.id).passingScore" type="number" min="0" max="100" placeholder="pass %" aria-label="Passing score" />
+              <button class="primary-action" type="button" @click="addLesson(module)">
+                <Plus :size="16" aria-hidden="true" />
+                Add Lesson
+              </button>
+            </div>
+          </div>
+          <p v-if="contentError" class="content-error" role="alert">{{ contentError }}</p>
+        </section>
+      </template>
+
+      <!-- ── Roster & Enrollment view ────────────────────────────────────── -->
+      <template v-if="activeView === 'roster' && isLoggedIn && canManageContent">
+        <section class="content-panel panel">
+          <h2>Assign a course</h2>
+          <p>
+            Pick a course, check the workers to enroll, and assign. Enrollments are stamped to your
+            tenant server-side (RLS) and are idempotent — re-assigning a worker is a no-op.
+          </p>
+          <div class="roster-assign">
+            <label>
+              Course
+              <select v-model="rosterCourseId" @change="loadCourseEnrollments">
+                <option value="">Select a course</option>
+                <option v-for="course in courseList" :key="course.id" :value="course.id">{{ course.title }}</option>
+              </select>
+            </label>
+            <button
+              class="primary-action roster-assign-btn"
+              type="button"
+              :disabled="!rosterCourseId || !selectedMemberIds.length"
+              @click="assignSelected"
+            >
+              <ClipboardList :size="18" aria-hidden="true" />
+              Assign To {{ selectedMemberIds.length }} Selected
+            </button>
+          </div>
+          <p v-if="rosterError" class="content-error" role="alert">{{ rosterError }}</p>
+        </section>
+
+        <section class="tenant-list panel">
+          <h2>Tenant members</h2>
+          <p v-if="!members.length" class="content-empty">No members in this tenant yet.</p>
+          <div v-else class="module-list">
+            <label v-for="member in members" :key="member.id" class="roster-member-row">
+              <input
+                type="checkbox"
+                :checked="selectedMemberIds.includes(member.id)"
+                @change="toggleMember(member.id)"
+              />
+              <Users :size="16" aria-hidden="true" />
+              <span class="roster-member-name">{{ member.name }}</span>
+              <small>{{ member.email }} · {{ member.role }}</small>
+            </label>
+          </div>
+        </section>
+
+        <section class="tenant-list panel">
+          <h2>Current enrollments</h2>
+          <p v-if="!selectedRosterCourse" class="content-empty">Select a course to see its enrollments.</p>
+          <template v-else>
+            <p class="content-hint">{{ selectedRosterCourse.title }}</p>
+            <p v-if="!courseEnrollments.length" class="content-empty">No one is enrolled in this course yet.</p>
+            <div v-else class="module-list">
+              <div v-for="enrollment in courseEnrollments" :key="enrollment.id" class="content-row">
+                <GraduationCap :size="16" aria-hidden="true" />
+                <span>{{ enrollment.memberName }}</span>
+                <small>{{ enrollment.status }} · {{ enrollment.progress }}%</small>
+              </div>
+            </div>
+          </template>
+        </section>
+      </template>
     </section>
   </main>
 </template>

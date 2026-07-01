@@ -29,6 +29,7 @@ import type {
   CourseBundleDTO,
   CourseDTO,
   CourseModuleDTO,
+  LessonKind,
   ProductPackageDTO,
   TenantDTO,
   UserDTO,
@@ -38,12 +39,17 @@ import { GROUP_TO_USER_ROLE, isCognitoGroup } from '@soteria-forge/shared'
 import type {
   CourseInsert,
   CourseRow,
+  CourseUpdate,
+  EnrollmentInsert,
+  EnrollmentRow,
   InvitationInsert,
   InvitationRow,
   LessonInsert,
   LessonRow,
+  LessonUpdate,
   ModuleInsert,
   ModuleRow,
+  ModuleUpdate,
   ProfileRow,
   TenantInsert,
   TenantRow,
@@ -70,6 +76,100 @@ export const INVITABLE_ROLES: readonly InvitableRole[] = ['worker', 'supervisor'
  * build a fully field-checked payload without it, then hand it to `.insert()`.
  */
 type ServerStamped<T> = Omit<T, 'tenant_id'>
+
+// ===========================================================================
+// Content-authoring + enrollment inputs (the console's course/module/lesson
+// editor and roster/assignment views). These are the CLIENT-facing shapes the
+// UI builds; the service maps them onto the generated Insert/Update types.
+// tenant_id is NEVER part of an input — it is server-stamped by a BEFORE INSERT
+// trigger from the verified session, and RLS enforces the boundary.
+// ===========================================================================
+
+/** Fields a tenant-admin sets when creating a course header. */
+export type CreateCourseInput = {
+  title: string
+  description?: string
+  category?: string
+  status?: CourseDTO['status']
+  durationMinutes?: number
+  tags?: string[]
+}
+
+/** Mutable course-header columns for an edit. Every field is optional. */
+export type UpdateCoursePatch = {
+  title?: string
+  description?: string | null
+  category?: string | null
+  status?: CourseDTO['status']
+  durationMinutes?: number | null
+  tags?: string[]
+}
+
+/** Fields for adding a module under a course. `sequence` is caller-ordered. */
+export type CreateModuleInput = {
+  title: string
+  description?: string
+  sequence: number
+}
+
+/** Mutable module columns for an edit. */
+export type UpdateModulePatch = {
+  title?: string
+  description?: string | null
+  sequence?: number
+}
+
+/** Fields for adding a lesson under a module. */
+export type CreateLessonInput = {
+  courseId: string
+  moduleId: string
+  kind: LessonKind
+  title: string
+  description?: string
+  durationMinutes: number
+  required: boolean
+  sequence: number
+  passingScore?: number
+}
+
+/** Mutable lesson columns for an edit. */
+export type UpdateLessonPatch = {
+  kind?: LessonKind
+  title?: string
+  description?: string | null
+  durationMinutes?: number
+  required?: boolean
+  sequence?: number
+  passingScore?: number | null
+}
+
+/**
+ * A tenant member (profile) as the roster view renders it. Derived from the
+ * caller's own tenant partition (RLS-scoped) — never from client input.
+ */
+export type TenantMember = {
+  id: string
+  name: string
+  email: string
+  role: UserRole
+}
+
+/**
+ * An enrollment row joined to the enrolled member's display name/email, for the
+ * "current enrollments" list on a course. The join is RLS-scoped to the caller's
+ * tenant on both sides.
+ */
+export type CourseEnrollment = EnrollmentRow & {
+  memberName: string
+  memberEmail: string
+}
+
+/** The full editable tree for one course: header + ordered modules + lessons. */
+export type CourseTree = {
+  course: CourseRow
+  modules: ModuleRow[]
+  lessons: LessonRow[]
+}
 
 // ===========================================================================
 // Error helper — surface Postgres/PostgREST errors as plain Error messages so
@@ -445,6 +545,292 @@ export const consoleApi = {
         ),
       ),
     }
+  },
+
+  // -------------------------------------------------------------------------
+  // Content authoring — a tenant-admin authors courses → modules → lessons.
+  //
+  // RLS permits ONLY tenant-admin / super-admin to write courses/modules/
+  // lessons, and a BEFORE INSERT trigger stamps `tenant_id` from the verified
+  // session — a client can NEVER seed another tenant's row. The generated Insert
+  // types mark `tenant_id` required (they can't see the trigger), so INSERTs use
+  // the `ServerStamped<>` helper to build a field-checked payload WITHOUT a
+  // tenant_id, exactly like `createCourse`. No tenant is ever taken from UI input
+  // for authorization; a non-admin caller is rejected by RLS (SQLSTATE 42501) and
+  // the error surfaces to the UI.
+  // -------------------------------------------------------------------------
+
+  /**
+   * List the caller's tenant courses as raw rows, newest first. RLS scopes the
+   * result to the caller's own tenant — no tenant filter is sent. Returns rows
+   * (not DTOs) so the authoring editor can drive off the exact stored shape.
+   */
+  async listCourses(): Promise<{ courses: CourseRow[] }> {
+    const { data, error } = await supabase
+      .from('courses')
+      .select('*')
+      .order('updated_at', { ascending: false })
+    if (error) fail('Unable to list courses', error)
+    return { courses: data ?? [] }
+  },
+
+  /**
+   * Create a single course header (no children). tenant_id is omitted — stamped
+   * server-side by the trigger under RLS. Returns the inserted row.
+   */
+  async createCourseHeader(input: CreateCourseInput): Promise<{ course: CourseRow }> {
+    // tenant_id intentionally omitted — server-stamped by trigger under RLS.
+    const insert: ServerStamped<CourseInsert> = {
+      title: input.title,
+      description: input.description ?? null,
+      category: input.category ?? null,
+      status: input.status ?? 'draft',
+      duration_minutes: input.durationMinutes ?? null,
+      tags: input.tags ?? [],
+    }
+    const { data, error } = await supabase
+      .from('courses')
+      .insert(insert as CourseInsert)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to create course', error)
+    return { course: data }
+  },
+
+  /**
+   * Patch mutable course-header columns. `id` targets the row; RLS re-authorizes
+   * the write (own tenant, admin role). No tenant_id is ever sent.
+   */
+  async updateCourse(id: string, patch: UpdateCoursePatch): Promise<{ course: CourseRow }> {
+    const update: CourseUpdate = {}
+    if (patch.title !== undefined) update.title = patch.title
+    if (patch.description !== undefined) update.description = patch.description
+    if (patch.category !== undefined) update.category = patch.category
+    if (patch.status !== undefined) update.status = patch.status
+    if (patch.durationMinutes !== undefined) update.duration_minutes = patch.durationMinutes
+    if (patch.tags !== undefined) update.tags = patch.tags
+
+    const { data, error } = await supabase
+      .from('courses')
+      .update(update)
+      .eq('id', id)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to update course', error)
+    return { course: data }
+  },
+
+  /**
+   * Load one course's full editable tree — the header plus its modules and
+   * lessons, each ordered by `sequence`. RLS scopes every table to the caller's
+   * tenant, so a course id from another tenant simply resolves to nothing.
+   */
+  async getCourseTree(id: string): Promise<CourseTree> {
+    const { data: course, error } = await supabase
+      .from('courses')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (error || !course) fail('Unable to load course', error)
+
+    const [{ data: modules, error: modulesError }, { data: lessons, error: lessonsError }] =
+      await Promise.all([
+        supabase.from('modules').select('*').eq('course_id', id).order('sequence'),
+        supabase.from('lessons').select('*').eq('course_id', id).order('sequence'),
+      ])
+    if (modulesError) fail('Unable to load modules', modulesError)
+    if (lessonsError) fail('Unable to load lessons', lessonsError)
+
+    return { course, modules: modules ?? [], lessons: lessons ?? [] }
+  },
+
+  /**
+   * Add a module under a course. tenant_id is server-stamped; `course_id` binds
+   * it to the parent (RLS still checks that parent is in the caller's tenant).
+   */
+  async createModule(courseId: string, input: CreateModuleInput): Promise<{ module: ModuleRow }> {
+    // tenant_id intentionally omitted — server-stamped by trigger under RLS.
+    const insert: ServerStamped<ModuleInsert> = {
+      course_id: courseId,
+      title: input.title,
+      description: input.description ?? null,
+      sequence: input.sequence,
+    }
+    const { data, error } = await supabase
+      .from('modules')
+      .insert(insert as ModuleInsert)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to create module', error)
+    return { module: data }
+  },
+
+  /** Patch mutable module columns. `id` targets the row; RLS re-authorizes it. */
+  async updateModule(id: string, patch: UpdateModulePatch): Promise<{ module: ModuleRow }> {
+    const update: ModuleUpdate = {}
+    if (patch.title !== undefined) update.title = patch.title
+    if (patch.description !== undefined) update.description = patch.description
+    if (patch.sequence !== undefined) update.sequence = patch.sequence
+
+    const { data, error } = await supabase
+      .from('modules')
+      .update(update)
+      .eq('id', id)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to update module', error)
+    return { module: data }
+  },
+
+  /**
+   * Delete a module. RLS re-authorizes the delete; the DB cascades its child
+   * lessons (FK). No tenant_id is sent — `id` alone targets the row within the
+   * caller's own tenant.
+   */
+  async deleteModule(id: string): Promise<void> {
+    const { error } = await supabase.from('modules').delete().eq('id', id)
+    if (error) fail('Unable to delete module', error)
+  },
+
+  /**
+   * Add a lesson under a module. tenant_id is server-stamped; `course_id` +
+   * `module_id` bind it to its parents. `content` defaults server-side.
+   */
+  async createLesson(input: CreateLessonInput): Promise<{ lesson: LessonRow }> {
+    // tenant_id intentionally omitted — server-stamped by trigger under RLS.
+    const insert: ServerStamped<LessonInsert> = {
+      course_id: input.courseId,
+      module_id: input.moduleId,
+      kind: input.kind,
+      title: input.title,
+      description: input.description ?? null,
+      duration_minutes: input.durationMinutes,
+      required: input.required,
+      sequence: input.sequence,
+      passing_score: input.passingScore ?? null,
+    }
+    const { data, error } = await supabase
+      .from('lessons')
+      .insert(insert as LessonInsert)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to create lesson', error)
+    return { lesson: data }
+  },
+
+  /** Patch mutable lesson columns. `id` targets the row; RLS re-authorizes it. */
+  async updateLesson(id: string, patch: UpdateLessonPatch): Promise<{ lesson: LessonRow }> {
+    const update: LessonUpdate = {}
+    if (patch.kind !== undefined) update.kind = patch.kind
+    if (patch.title !== undefined) update.title = patch.title
+    if (patch.description !== undefined) update.description = patch.description
+    if (patch.durationMinutes !== undefined) update.duration_minutes = patch.durationMinutes
+    if (patch.required !== undefined) update.required = patch.required
+    if (patch.sequence !== undefined) update.sequence = patch.sequence
+    if (patch.passingScore !== undefined) update.passing_score = patch.passingScore
+
+    const { data, error } = await supabase
+      .from('lessons')
+      .update(update)
+      .eq('id', id)
+      .select('*')
+      .single()
+    if (error || !data) fail('Unable to update lesson', error)
+    return { lesson: data }
+  },
+
+  /** Delete a lesson. RLS re-authorizes the delete; no tenant_id is sent. */
+  async deleteLesson(id: string): Promise<void> {
+    const { error } = await supabase.from('lessons').delete().eq('id', id)
+    if (error) fail('Unable to delete lesson', error)
+  },
+
+  // -------------------------------------------------------------------------
+  // Roster & enrollment — a tenant-admin lists their tenant members and assigns
+  // courses to workers.
+  //
+  // `listMembers` reads `profiles`, which RLS scopes to the caller's own tenant,
+  // so it returns exactly the tenant's roster — no tenant filter is sent.
+  // `assignCourse` bulk-inserts `enrollments`; each row's tenant_id is stamped by
+  // the BEFORE INSERT trigger from the verified session (we omit it via
+  // ServerStamped), and the upsert is idempotent on (user_id, course_id) so a
+  // repeat assignment is a no-op rather than a duplicate. RLS re-authorizes every
+  // write; a non-admin caller is rejected.
+  // -------------------------------------------------------------------------
+
+  /**
+   * List the caller's tenant members (RLS-scoped profiles) for the roster view.
+   * Maps the stored `profiles.role` (group vocabulary) to the legacy `UserRole`
+   * the console speaks via the canonical bridge — never a hardcoded mapping.
+   */
+  async listMembers(): Promise<{ members: TenantMember[] }> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, role')
+      .order('full_name')
+    if (error) fail('Unable to list members', error)
+    return {
+      members: (data ?? []).map((row) => ({
+        id: row.id,
+        name: row.full_name ?? row.email ?? row.id,
+        email: row.email ?? '',
+        role: profileRoleToUserRole(row.role),
+      })),
+    }
+  },
+
+  /**
+   * Assign a course to one or more members: bulk-insert `enrollments` with
+   * status 'assigned'. tenant_id is omitted (server-stamped by the trigger).
+   * Idempotent via upsert on the (user_id, course_id) unique constraint —
+   * re-assigning an already-enrolled worker is ignored, never duplicated. A
+   * non-admin caller is rejected by RLS.
+   */
+  async assignCourse(courseId: string, userIds: string[]): Promise<{ assigned: number }> {
+    const ids = Array.from(new Set(userIds.filter(Boolean)))
+    if (!ids.length) return { assigned: 0 }
+
+    // tenant_id intentionally omitted — server-stamped by trigger under RLS.
+    const rows: ServerStamped<EnrollmentInsert>[] = ids.map((userId) => ({
+      user_id: userId,
+      course_id: courseId,
+      status: 'assigned',
+    }))
+
+    const { data, error } = await supabase
+      .from('enrollments')
+      .upsert(rows as EnrollmentInsert[], { onConflict: 'user_id,course_id', ignoreDuplicates: true })
+      .select('id')
+    if (error) fail('Unable to assign course', error)
+    return { assigned: data?.length ?? 0 }
+  },
+
+  /**
+   * Current enrollments for a course, joined to each member's display name/email.
+   * RLS scopes both `enrollments` and the embedded `profiles` to the caller's
+   * tenant. Returns rows enriched with `memberName`/`memberEmail` for the UI.
+   */
+  async listCourseEnrollments(courseId: string): Promise<{ enrollments: CourseEnrollment[] }> {
+    const { data, error } = await supabase
+      .from('enrollments')
+      .select('*, profiles(full_name, email)')
+      .eq('course_id', courseId)
+      .order('created_at', { ascending: false })
+    if (error) fail('Unable to list enrollments', error)
+
+    // The embedded-relation select returns each enrollment with a nested
+    // `profiles` object (or null). We narrow the PostgREST inference to the shape
+    // we read via `unknown` — the runtime shape is exactly this.
+    type JoinedRow = EnrollmentRow & { profiles: { full_name: string | null; email: string | null } | null }
+    const enrollments = ((data ?? []) as unknown as JoinedRow[]).map((row) => {
+      const { profiles, ...enrollment } = row
+      return {
+        ...enrollment,
+        memberName: profiles?.full_name ?? profiles?.email ?? enrollment.user_id,
+        memberEmail: profiles?.email ?? '',
+      }
+    })
+    return { enrollments }
   },
 
   // -------------------------------------------------------------------------

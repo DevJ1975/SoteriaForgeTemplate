@@ -441,6 +441,252 @@ a:focus-visible {
   color: var(--sf-text-primary);
 }
 
+/* ── Content authoring (Courses view) + Roster panels ───────────────────── */
+.content-panel,
+.content-editor {
+  margin-bottom: 16px;
+}
+
+.content-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 12px;
+}
+
+.content-form-wide {
+  grid-column: 1 / -1;
+}
+
+.content-form-submit {
+  grid-column: 1 / -1;
+  width: auto;
+  justify-self: start;
+}
+
+.content-error {
+  margin: 0;
+  border: 1px solid rgb(200 77 47 / 34%);
+  border-radius: var(--sf-radius-sm);
+  padding: 10px 12px;
+  color: var(--sf-color-danger);
+  background: rgb(200 77 47 / 8%);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.content-empty {
+  margin: 0;
+  color: var(--sf-text-muted);
+  font-weight: 800;
+}
+
+.content-hint {
+  margin: 0;
+  color: var(--sf-text-secondary);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+/* Course rows double as buttons that open the editor. */
+.content-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--sf-radius-sm);
+  padding: 12px;
+  color: var(--sf-text-primary);
+  background: var(--sf-bg-subtle);
+  cursor: pointer;
+  text-align: left;
+}
+
+.content-row span {
+  flex: 1;
+  min-width: 0;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.content-row small {
+  color: var(--sf-text-muted);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.content-row:hover {
+  border-color: var(--sf-color-blue-200);
+  background: var(--sf-color-blue-50);
+}
+
+.content-row-active {
+  border-color: var(--sf-color-blue-700);
+  background: var(--sf-color-blue-50);
+}
+
+.content-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.content-close {
+  width: auto;
+  flex: none;
+}
+
+.content-add-module {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.content-add-module .primary-action {
+  width: auto;
+}
+
+.content-module {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+  padding: 14px 16px;
+  background: var(--sf-bg-subtle);
+}
+
+.content-module-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.content-module-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.content-module-head small {
+  color: var(--sf-text-muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.content-lessons {
+  display: grid;
+  gap: 8px;
+}
+
+.content-lesson-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--sf-radius-sm);
+  padding: 8px 10px;
+  background: var(--sf-bg-surface);
+}
+
+.content-lesson-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.content-lesson-row small {
+  color: var(--sf-text-muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.content-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-sm);
+  color: var(--sf-color-danger);
+  background: var(--sf-bg-surface);
+  cursor: pointer;
+}
+
+.content-icon-btn:hover {
+  background: rgb(200 77 47 / 8%);
+}
+
+.content-add-lesson {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr) 80px auto 90px auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-add-lesson .primary-action {
+  width: auto;
+}
+
+.content-required-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.content-required-toggle input {
+  width: auto;
+}
+
+/* ── Roster & enrollment ──────────────────────────────────────────────────── */
+.roster-assign {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.roster-assign-btn {
+  width: auto;
+}
+
+.roster-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--sf-radius-sm);
+  padding: 10px 12px;
+  background: var(--sf-bg-subtle);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.roster-member-row input {
+  width: auto;
+}
+
+.roster-member-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.roster-member-row small {
+  color: var(--sf-text-muted);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
 @media (max-width: 980px) {
   .console-shell,
   .console-grid {
@@ -465,5 +711,20 @@ a:focus-visible {
 
   .provision-form .primary-action {
     width: 100%;
+  }
+
+  .content-form,
+  .content-add-module,
+  .content-add-lesson,
+  .roster-assign {
+    grid-template-columns: 1fr;
+  }
+
+  .content-form-submit,
+  .content-add-module .primary-action,
+  .content-add-lesson .primary-action,
+  .roster-assign-btn {
+    width: 100%;
+    justify-self: stretch;
   }
 }
