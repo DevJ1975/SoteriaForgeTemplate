@@ -1,12 +1,12 @@
 name: CI
 
-# Phase-0 CI scope: the rebuild is defined-as-code and UNDEPLOYED, and the
-# React Native (apps/mobile) and Amplify Gen 2 (backend) workspaces need native
-# / cloud toolchains + a lockfile that only exist after `npm install`. So CI
-# verifies the two pure-TypeScript packages that ARE self-contained:
+# Phase-0 CI scope: the rebuild is defined-as-code and UNDEPLOYED. The React
+# Native workspaces (apps/mobile AND packages/ui — the latter is now the Soteria
+# Forge UI kit, RN source consumed via Metro) and the backend need native / cloud
+# toolchains + a lockfile that only exist after `npm install`, so they can't be
+# type-checked here yet. CI verifies the one workspace that IS self-contained:
 #   - @soteria-forge/shared : the domain contract (type-check + unit tests)
-#   - @soteria-forge/ui     : design tokens (type-check)
-# As the app/backend become installable (lockfile committed), extend the matrix.
+# As the app/ui/backend become installable (lockfile committed), extend the matrix.
 
 on:
   pull_request:
@@ -56,7 +56,3 @@ jobs:
           tsc || echo "tsc reported test-file type notes (expected without @types/node); dist emitted"
           test -f dist/index.js || { echo "::error::shared did not emit dist/index.js"; exit 1; }
           node --test "dist/**/*.test.js"
-
-      - name: ui — type-check
-        working-directory: packages/ui
-        run: tsc --noEmit
