@@ -73,8 +73,17 @@ and authorize playback through an RLS-checked edge function.**
   is deliberately not used for this read** — it would bypass RLS and could leak
   another tenant's video. Only after that gate passes does the function call the
   Cloudflare API (`POST /accounts/{id}/stream/{playback_id}/token`, Bearer
-  `CF_STREAM_API_TOKEN`, short `exp`) to mint a **signed** token and return the
-  `customer-<code>.cloudflarestream.com/<token>/manifest/video.m3u8` URL.
+  `CF_STREAM_API_TOKEN`, short `exp`) to mint a **signed** token.
+- **One endpoint, every player surface (function v2).** The function returns both
+  delivery shapes from the single tenant-checked call: the signed HLS `url`
+  (`…/<token>/manifest/video.m3u8`) for a native player, and the raw signed
+  `token` + `customerCode` + a ready-made `iframeUrl` (`…/<token>/iframe`) for the
+  official Cloudflare Stream player. This lets **mobile** use a React Native
+  `WebView` (the Stream player) online and `react-native-video` on the cached MP4
+  offline, the **console** render an admin `<iframe>` preview, and an optional
+  **React web** surface use `@cloudflare/stream-react` — all off the same signed,
+  RLS-gated response. The token is scoped to that one video and short-lived; it is
+  safe to hand to a player and is **not** the Cloudflare API token.
 - **Graceful before Cloudflare exists.** If any of `CF_ACCOUNT_ID`,
   `CF_STREAM_API_TOKEN`, `CF_STREAM_CUSTOMER_CODE` is unset, the function returns
   **`501 { "error": "video provider not configured" }`** — so it can be deployed

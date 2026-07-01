@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Album, AlertTriangle, Award, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, Copy, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, Video, WandSparkles } from '@lucide/vue'
+import { Album, AlertTriangle, Award, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, Copy, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Play, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, Video, WandSparkles, X } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
 import {
@@ -491,6 +491,7 @@ function closeCourse() {
   for (const key of Object.keys(lessonVideos)) delete lessonVideos[key]
   for (const key of Object.keys(videoErrors)) delete videoErrors[key]
   for (const key of Object.keys(videoSaving)) delete videoSaving[key]
+  for (const key of Object.keys(videoPreviews)) delete videoPreviews[key]
 }
 
 async function addModule() {
@@ -570,6 +571,7 @@ async function removeLesson(lesson: LessonRow) {
     delete videoDrafts[lesson.id]
     delete lessonVideos[lesson.id]
     delete videoErrors[lesson.id]
+    delete videoPreviews[lesson.id]
     status.value = `Removed lesson ${lesson.title}`
   } catch (error) {
     contentError.value = error instanceof Error ? error.message : 'Unable to remove lesson'
@@ -642,6 +644,51 @@ async function saveLessonVideo(lesson: LessonRow) {
   } finally {
     videoSaving[lesson.id] = false
   }
+}
+
+// ── Stream video preview (video-kind lessons that HAVE a linked asset) ──────────
+// An admin can confirm the linked Cloudflare Stream video actually plays. We ask
+// the `stream-signed-url` edge function (via consoleApi.previewLessonVideo) for a
+// short-lived player embed URL and drop it into a plain <iframe> — no Cloudflare
+// npm dependency, and NO tenant is sent (the function re-derives it from the
+// session and RLS-checks the video is ours). Per-lesson preview state (embed url,
+// loading, inline error) is keyed by lesson id like the other video maps. On
+// 501/403/error the friendly message renders in place of the iframe.
+type VideoPreview = { iframeUrl: string; loading: boolean; error: string }
+const videoPreviews = reactive<Record<string, VideoPreview>>({})
+
+/** Read a lesson's preview state, defaulting to a closed/empty one. */
+function videoPreviewFor(lessonId: string): VideoPreview {
+  return videoPreviews[lessonId] ?? { iframeUrl: '', loading: false, error: '' }
+}
+
+/**
+ * Request (or re-request) a Stream player embed for a linked video lesson and
+ * open the inline preview panel. Errors (501 provider-not-configured, 403
+ * cross-tenant, or any other) surface inline on that lesson's preview instead of
+ * the iframe. Safe to call repeatedly — it refreshes the short-lived embed.
+ */
+async function previewLessonVideo(lesson: LessonRow) {
+  // Only meaningful for a video lesson that already has a linked asset.
+  if (lesson.kind !== 'video' || !lessonVideos[lesson.id]) return
+  videoPreviews[lesson.id] = { iframeUrl: '', loading: true, error: '' }
+  try {
+    const { iframeUrl } = await consoleApi.previewLessonVideo(lesson.id)
+    videoPreviews[lesson.id] = { iframeUrl, loading: false, error: '' }
+    status.value = `Loaded preview for ${lesson.title}`
+  } catch (error) {
+    // 501 / 403 / any failure — show the friendly message in place of the player.
+    videoPreviews[lesson.id] = {
+      iframeUrl: '',
+      loading: false,
+      error: error instanceof Error ? error.message : 'Unable to load video preview',
+    }
+  }
+}
+
+/** Close a lesson's preview panel and drop its embed state. */
+function closeLessonPreview(lessonId: string) {
+  delete videoPreviews[lessonId]
 }
 
 // ── Roster & enrollment view ───────────────────────────────────────────────────
@@ -1337,6 +1384,61 @@ onMounted(async () => {
                     no bytes are stored.
                   </p>
                   <p v-if="videoErrors[lesson.id]" class="content-error" role="alert">{{ videoErrors[lesson.id] }}</p>
+
+                  <!-- Preview (only for a video lesson that HAS a linked asset).
+                       Confirms the linked Stream video plays: mints a short-lived
+                       player embed via the stream-signed-url edge function and
+                       drops iframeUrl into a plain 16:9 <iframe>. No tenant is
+                       sent — the function re-derives it and RLS-checks the video.
+                       501/403/error degrade to a friendly inline message. -->
+                  <div v-if="lessonVideos[lesson.id]" class="content-video-preview">
+                    <div class="content-video-preview-actions">
+                      <button
+                        class="secondary-action content-video-preview-btn"
+                        type="button"
+                        :disabled="videoPreviewFor(lesson.id).loading"
+                        @click="previewLessonVideo(lesson)"
+                      >
+                        <Play :size="16" aria-hidden="true" />
+                        {{ videoPreviewFor(lesson.id).loading ? 'Loading…' : (videoPreviewFor(lesson.id).iframeUrl ? 'Reload Preview' : 'Preview') }}
+                      </button>
+                      <button
+                        v-if="videoPreviews[lesson.id]"
+                        class="content-icon-btn content-video-preview-close"
+                        type="button"
+                        title="Close preview"
+                        @click="closeLessonPreview(lesson.id)"
+                      >
+                        <X :size="15" aria-hidden="true" />
+                        Close
+                      </button>
+                    </div>
+
+                    <p v-if="videoPreviewFor(lesson.id).loading" class="content-video-preview-status">
+                      Minting a signed player embed…
+                    </p>
+                    <p
+                      v-else-if="videoPreviewFor(lesson.id).error"
+                      class="content-error content-video-preview-error"
+                      role="alert"
+                    >
+                      {{ videoPreviewFor(lesson.id).error }}
+                    </p>
+                    <div
+                      v-else-if="videoPreviewFor(lesson.id).iframeUrl"
+                      class="content-video-preview-frame"
+                    >
+                      <iframe
+                        :src="videoPreviewFor(lesson.id).iframeUrl"
+                        title="Cloudflare Stream video preview"
+                        loading="lazy"
+                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                        allowfullscreen
+                        sandbox="allow-scripts allow-same-origin allow-presentation"
+                        referrerpolicy="no-referrer"
+                      ></iframe>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

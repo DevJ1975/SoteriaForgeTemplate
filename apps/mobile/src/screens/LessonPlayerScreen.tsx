@@ -29,6 +29,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Video from 'react-native-video';
+import { WebView } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   generateStatementId,
@@ -300,19 +301,24 @@ export function LessonPlayerScreen() {
 /**
  * LessonVideo — the play surface for a `video` lesson.
  *
- * Resolves a playable source via `useLessonVideo` (a cached offline rendition if
- * present, else a signed HLS URL from the `stream-signed-url` edge function) and:
- *   - shows a spinner while resolving,
- *   - plays it with `react-native-video` when ready,
- *   - degrades to a friendly "video isn't available yet" placeholder on
- *     501 (provider unconfigured) / 403 (not this tenant's video) / any error.
+ * Resolves a playable source via `useLessonVideo` and picks the right player:
+ *   - ONLINE (`iframeUrl` present) → the OFFICIAL Cloudflare Stream player,
+ *     loaded in a `<WebView>` from the server-minted `iframeUrl`. We load ONLY
+ *     that returned cloudflarestream.com embed — never a URL built from client
+ *     input — so the RLS-checked token stays the sole gate.
+ *   - OFFLINE (a cached MP4 `uri`, no `iframeUrl`) → `react-native-video`, so a
+ *     downloaded lesson plays with no connectivity.
+ *   - resolving → a spinner.
+ *   - 501 (provider unconfigured) / 403 (not this tenant's video) / any error →
+ *     the SAME friendly "video isn't available yet" placeholder (soft retry on
+ *     error). We never surface a scary error.
  *
  * It NEVER gates completion — the Mark-complete button lives outside this
  * component and works regardless of what happens here. No hardcoded brand hex.
  */
 function LessonVideo({ lessonId }: { lessonId: string }) {
   const theme = useTheme();
-  const { status, uri, offline, message, refetch } = useLessonVideo(lessonId);
+  const { status, uri, iframeUrl, offline, message, refetch } = useLessonVideo(lessonId);
 
   const surfaceStyle = [
     styles.playerPlaceholder,
@@ -341,7 +347,29 @@ function LessonVideo({ lessonId }: { lessonId: string }) {
     );
   }
 
-  if (status === 'ready' && uri) {
+  // ONLINE: render the official Cloudflare Stream player from the server-minted
+  // iframe embed. We load ONLY the returned cloudflarestream.com URL.
+  if (status === 'ready' && iframeUrl) {
+    return (
+      <View
+        style={[
+          styles.playerFrame,
+          { borderRadius: theme.radii.md, backgroundColor: theme.colors.overlay },
+        ]}
+      >
+        <WebView
+          source={{ uri: iframeUrl }}
+          style={styles.video}
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          accessibilityLabel="Lesson video"
+        />
+      </View>
+    );
+  }
+
+  // OFFLINE: a cached MP4 rendition plays with react-native-video (no iframeUrl).
+  if (status === 'ready' && offline && uri) {
     return (
       <View style={[styles.playerFrame, { borderRadius: theme.radii.md, backgroundColor: theme.colors.overlay }]}>
         <Video
@@ -350,9 +378,9 @@ function LessonVideo({ lessonId }: { lessonId: string }) {
           controls
           paused
           resizeMode="contain"
-          // A cached offline rendition is a plain file/MP4; the signed source is
-          // an HLS manifest. react-native-video handles both from the URI.
-          accessibilityLabel={offline ? 'Downloaded lesson video' : 'Lesson video'}
+          // A cached offline rendition is a plain file/MP4; react-native-video
+          // plays it from the URI with no connectivity.
+          accessibilityLabel="Downloaded lesson video"
         />
       </View>
     );

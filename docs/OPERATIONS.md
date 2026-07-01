@@ -91,12 +91,35 @@ Video bytes live on **Cloudflare Stream**, never in Postgres (ADR-0005 / ADR-000
 holds metadata only (`provider`, `playback_id`, `download_url`, `course_id`, `lesson_id`, `tenant_id`).
 Playback is authorized by the `supabase/functions/stream-signed-url` edge function, which reads the
 `video_assets` row **through the caller's JWT so RLS scopes it to the caller's tenant** (never the
-service-role key) and then mints a short-lived Cloudflare Stream signed URL. Until the secrets below are
-set the function returns **501 `{ "error": "video provider not configured" }`**, so it is safe to deploy first.
+service-role key) and then mints a short-lived Cloudflare Stream signed credential. Until the secrets below
+are set the function returns **501 `{ "error": "video provider not configured" }`**, so it is safe to deploy first.
+
+On success it returns **both** delivery shapes from the one tenant-checked call, so every player surface
+uses the same endpoint:
+
+```jsonc
+{
+  "url":          "https://customer-<code>.cloudflarestream.com/<token>/manifest/video.m3u8", // native HLS (react-native-video)
+  "token":        "<signed token>",   // src for the official Stream player (@cloudflare/stream-react / iframe)
+  "customerCode": "<code>",           // the customer-<code> subdomain the player needs
+  "videoId":      "<playback id>",
+  "iframeUrl":    "https://customer-<code>.cloudflarestream.com/<token>/iframe", // WebView source / console preview
+  "expiresAt":    "…"
+}
+```
+
+The `token` is scoped to that one video and short-lived — safe to hand to a client player (the HLS `url`
+already embeds it); it is **not** the Cloudflare API token.
+
+**Player surfaces (all drive off this one function):** the **mobile** app plays the Stream player in a
+React Native `WebView` (`iframeUrl`) online and falls back to `react-native-video` on the cached MP4
+offline; the **console** shows an admin `<iframe>` preview (`iframeUrl`); the optional **React web**
+reference (`docs/examples/StreamWebPlayer.tsx`) uses `@cloudflare/stream-react` with `token` +
+`customerCode`.
 
 > **Deployed state:** the function is **already deployed** to the live project (`stream-signed-url`,
-> version 1, `verify_jwt=true`) and currently returns **501** — pending the `CF_*` secrets below. Setting
-> the secrets makes it start minting signed URLs immediately; no redeploy is required for that (redeploy
+> version 2, `verify_jwt=true`) and currently returns **501** — pending the `CF_*` secrets below. Setting
+> the secrets makes it start minting signed tokens immediately; no redeploy is required for that (redeploy
 > only when the function *code* changes).
 
 ### One-time Cloudflare setup (dashboard)
@@ -112,12 +135,13 @@ set the function returns **501 `{ "error": "video provider not configured" }`**,
 ### Set the function secrets + deploy (Supabase CLI)
 
 ```bash
-# The function is already deployed (version 1). Setting these secrets flips it
-# from 501 to minting signed URLs — no redeploy needed for that.
+# The function is already deployed (version 2). Setting these secrets flips it
+# from 501 to minting signed tokens — no redeploy needed for that. Fill in the
+# three values from your Cloudflare Stream account (see the setup steps above).
 supabase secrets set \
-  CF_ACCOUNT_ID=... \
-  CF_STREAM_API_TOKEN=... \
-  CF_STREAM_CUSTOMER_CODE=... \
+  CF_ACCOUNT_ID=<your-account-id> \
+  CF_STREAM_API_TOKEN=<your-stream-api-token> \
+  CF_STREAM_CUSTOMER_CODE=<your-customer-code> \
   --project-ref bgnadngztngkwzneknhd     # secrets — DO NOT COMMIT the token
 
 # Only re-deploy when the function CODE changes:
@@ -135,8 +159,10 @@ function is deployed with `verify_jwt=true`, so every call must carry a real use
    `provider = 'cloudflare-stream'`, `playback_id = <the CF id>`, `download_url = <the MP4 URL>`,
    `lesson_id`/`course_id` set. `tenant_id` is stamped by the `BEFORE INSERT` trigger from the author's
    verified session — do **not** pass a client-chosen tenant.
-3. The mobile/console client then calls `stream-signed-url` with `{ lesson_id }` (or `{ video_asset_id }`)
-   to get a short-lived signed HLS URL for streaming; offline uses the cached `download_url` MP4 directly.
+3. The client then calls `stream-signed-url` with `{ lesson_id }` (or `{ video_asset_id }`) to get the
+   short-lived signed token / HLS URL / `iframeUrl` (see the response shape above). Mobile plays the
+   Stream player in a WebView online and the cached `download_url` MP4 offline; the console renders an
+   `<iframe>` preview.
 
 ## 6. Deferred / needs external accounts
 

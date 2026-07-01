@@ -16,9 +16,10 @@ Owned by the **mobile** agent; the offline layer is owned by **offline-sync**. S
 ## Custom dev client (why, not Expo Go)
 
 Native modules absent from Expo Go force a development build: `react-native-video` (playback),
-`@nozbe/watermelondb` (offline store — offline-sync's), `@react-native-community/netinfo`
-(connectivity). Run `expo run:ios` / `run:android` for a dev client, not Expo Go.
-(`@supabase/supabase-js` is pure JS — no native module needed.)
+`react-native-webview` (Cloudflare Stream online player embed), `@nozbe/watermelondb` (offline
+store — offline-sync's), `@react-native-community/netinfo` (connectivity). Run `expo run:ios` /
+`run:android` for a dev client, not Expo Go. (`@supabase/supabase-js` is pure JS — no native
+module needed.)
 
 ## Layout
 

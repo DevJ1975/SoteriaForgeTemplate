@@ -992,6 +992,82 @@ a:focus-visible {
   color: var(--sf-text-secondary);
 }
 
+/* ── Stream video preview (linked video-kind lessons) ───────────────────── */
+.content-video-preview {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--sf-border-subtle);
+  padding-top: 10px;
+}
+
+.content-video-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-video-preview-btn {
+  width: auto;
+}
+
+.content-video-preview-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  padding: 6px 10px;
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-xs);
+  font-weight: 900;
+}
+
+.content-video-preview-close:hover {
+  background: var(--sf-bg-subtle);
+}
+
+.content-video-preview-status {
+  margin: 0;
+  color: var(--sf-text-muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.content-video-preview-error {
+  margin: 0;
+}
+
+/* 16:9 responsive frame — collapses cleanly to full width on narrow screens. */
+.content-video-preview-frame {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+  background: var(--sf-color-ink-900);
+  box-shadow: var(--sf-shadow-sm);
+}
+
+.content-video-preview-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+/* Fallback for browsers without aspect-ratio support: reserve 16:9 via padding. */
+@supports not (aspect-ratio: 16 / 9) {
+  .content-video-preview-frame {
+    height: 0;
+    padding-bottom: 56.25%;
+  }
+}
+
 /* ── Certificates register ──────────────────────────────────────────────── */
 .cert-table {
   display: grid;
@@ -1110,6 +1186,15 @@ a:focus-visible {
   .content-video-save {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .content-video-preview-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .content-video-preview-frame {
+    max-width: 100%;
   }
 
   .console-sidebar {

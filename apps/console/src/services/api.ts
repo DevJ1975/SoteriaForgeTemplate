@@ -393,6 +393,38 @@ function fail(context: string, error: { message: string } | null): never {
 }
 
 // ===========================================================================
+// Edge-function error classification — `supabase.functions.invoke` surfaces a
+// `FunctionsHttpError` whose `.context` is the raw `Response` (so the HTTP
+// status lives at `error.context?.status`). We read that status DEFENSIVELY
+// (the shape is not statically guaranteed) and map the ones the console cares
+// about to a friendly message: 501 = provider not configured (CF_* secrets
+// unset), 403 = the video isn't in the caller's tenant (RLS). Anything else
+// falls back to the function's own message, then a generic label.
+// ===========================================================================
+
+/** Read an HTTP status off an unknown edge-function error, if one is present. */
+function edgeErrorStatus(error: unknown): number | undefined {
+  const context = asRecord(error).context
+  const status = asRecord(context).status
+  return typeof status === 'number' ? status : undefined
+}
+
+/** Map an edge-function invoke error to a human-friendly console message. */
+function edgeErrorMessage(error: unknown, fallback: string): string {
+  switch (edgeErrorStatus(error)) {
+    case 501:
+      return 'Preview unavailable: the video provider isn’t configured yet.'
+    case 403:
+      return 'Preview unavailable: this video isn’t in your tenant.'
+    default: {
+      if (error instanceof Error && error.message) return error.message
+      const message = asRecord(error).message
+      return typeof message === 'string' && message ? message : fallback
+    }
+  }
+}
+
+// ===========================================================================
 // Row → DTO adapters
 // ---------------------------------------------------------------------------
 // The Postgres schema stores a leaner shape than the legacy wire DTOs: tenant
@@ -1356,6 +1388,36 @@ export const consoleApi = {
       .single()
     if (error || !data) fail('Unable to register lesson video', error)
     return { video: data }
+  },
+
+  /**
+   * Mint a short-lived Cloudflare Stream player embed for a lesson's linked
+   * video so an admin can confirm it plays. Calls the deployed
+   * `stream-signed-url` edge function with ONLY the `lesson_id` — NO tenant_id
+   * is sent (the function re-derives the caller's tenant from the verified
+   * session and RLS-checks the video belongs to it). On 200 the function
+   * returns `{ url, token, customerCode, videoId, iframeUrl, expiresAt }`;
+   * `iframeUrl` is a ready-made Stream player embed we drop into a plain
+   * `<iframe>` (no Cloudflare npm dependency — the React `stream-react` package
+   * does not apply to this Vue app).
+   *
+   * Errors are classified for the UI: 501 (provider not configured — CF_*
+   * secrets unset) and 403 (video not in the caller's tenant) surface a
+   * friendly message; the HTTP status is read defensively from
+   * `error.context?.status` (the FunctionsHttpError carries the raw Response
+   * there). Any other failure falls back to the function's own message.
+   */
+  async previewLessonVideo(lessonId: string): Promise<{ iframeUrl: string }> {
+    const { data, error } = await supabase.functions.invoke('stream-signed-url', {
+      body: { lesson_id: lessonId },
+    })
+    if (error) throw new Error(edgeErrorMessage(error, 'Unable to load video preview'))
+
+    const iframeUrl = asRecord(data).iframeUrl
+    if (typeof iframeUrl !== 'string' || !iframeUrl) {
+      throw new Error('Preview unavailable: the provider did not return a player embed.')
+    }
+    return { iframeUrl }
   },
 
   // -------------------------------------------------------------------------

@@ -11,10 +11,11 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
  * `extra` as an `expo-constants` fallback (see src/supabase/client.ts).
  *
  * This is a CUSTOM DEV CLIENT app (expo-dev-client): it uses native modules
- * (react-native-video, WatermelonDB, NetInfo) that are NOT in Expo Go, so it must
- * be run via a dev client build (`expo run:ios` / `expo run:android` or an EAS
- * dev build), not Expo Go. (@supabase/supabase-js is pure JS and needs no native
- * module — but the app still requires a dev client for the others.)
+ * (react-native-video, react-native-webview, WatermelonDB, NetInfo) that are NOT
+ * in Expo Go, so it must be run via a dev client build (`expo run:ios` /
+ * `expo run:android` or an EAS dev build), not Expo Go. (@supabase/supabase-js is
+ * pure JS and needs no native module — but the app still requires a dev client
+ * for the others.)
  */
 export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = process.env.APP_ENV ?? 'development';

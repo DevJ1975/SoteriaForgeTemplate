@@ -1,7 +1,10 @@
 // supabase/functions/stream-signed-url/index.ts
 //
-// Mint a short-lived, tenant-checked Cloudflare Stream SIGNED playback URL for a
-// lesson's video. The bytes live on Cloudflare Stream; `public.video_assets`
+// Mint a short-lived, tenant-checked Cloudflare Stream SIGNED playback credential
+// for a lesson's video, returning BOTH a signed HLS manifest URL (for native
+// players like react-native-video) AND the raw signed token + customer subdomain
+// (for the official Stream player: @cloudflare/stream-react, a WebView iframe, or
+// a console preview). The bytes live on Cloudflare Stream; `public.video_assets`
 // holds metadata only (see ADR-0005 / ADR-0008).
 //
 // TENANT-ISOLATION GATE (the #1 rule): the requested `video_assets` row is read
@@ -164,12 +167,28 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'video provider did not return a token' }, 502)
   }
 
-  // Build the signed HLS manifest URL against the tenant's customer subdomain.
-  const url = `https://customer-${cfCustomerCode}.cloudflarestream.com/${token}/manifest/video.m3u8`
+  // The Cloudflare Stream customer subdomain that serves this account's videos.
+  const customerBase = `https://customer-${cfCustomerCode}.cloudflarestream.com`
+  // Signed HLS manifest — for a native HLS player (react-native-video).
+  const url = `${customerBase}/${token}/manifest/video.m3u8`
+  // Ready-made iframe embed — for the official Stream player (RN WebView / web iframe / console preview).
+  const iframeUrl = `${customerBase}/${token}/iframe`
 
+  // Return BOTH delivery shapes from the one tenant-checked call:
+  //   - `url`         : signed HLS manifest (native <Video> players)
+  //   - `token`       : the signed playback token — the `src` a Cloudflare Stream
+  //                     player component (@cloudflare/stream-react / iframe) expects
+  //   - `customerCode`: the customer-<code> subdomain the player needs alongside the token
+  //   - `iframeUrl`   : a fully-formed player embed URL (WebView `source`, console preview)
+  // The token is scoped to THIS video and short-lived; it is safe to hand to the
+  // client player (the HLS `url` already embeds it) — it is NOT the CF API token.
   return json(
     {
       url,
+      token,
+      customerCode: cfCustomerCode,
+      videoId: playbackId,
+      iframeUrl,
       expiresAt: new Date(expSeconds * 1000).toISOString(),
     },
     200,

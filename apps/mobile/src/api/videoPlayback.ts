@@ -2,12 +2,21 @@
  * useLessonVideo — resolve a PLAYABLE source for a video lesson.
  *
  * Video bytes live on Cloudflare Stream; the DB holds METADATA ONLY. A signed,
- * short-lived HLS (`.m3u8`) playback URL is minted server-side by the
- * `stream-signed-url` edge function, which we invoke with just the opaque
- * `lesson_id`:
+ * short-lived playback bundle is minted server-side by the `stream-signed-url`
+ * edge function, which we invoke with just the opaque `lesson_id`:
  *
  *     supabase.functions.invoke('stream-signed-url', { body: { lesson_id } })
- *       → { url }   (HLS manifest)
+ *       → { url,          // HLS manifest (.m3u8) — for react-native-video
+ *           token,        // signed Cloudflare Stream token
+ *           customerCode, // the customer-<code> subdomain
+ *           videoId,
+ *           iframeUrl,    // ready-made Stream player embed (WebView src)
+ *           expiresAt }
+ *
+ * ONLINE vs OFFLINE playback: online we prefer the official Cloudflare Stream
+ * player, loaded from the edge function's `iframeUrl` in a WebView; offline we
+ * fall back to a cached MP4 played by react-native-video. The consumer branches
+ * on `iframeUrl` (present ⇒ online Stream player) vs `offline` (⇒ cached MP4).
  *
  * TENANT ISOLATION: the edge function derives the caller's tenant from the
  * verified session and refuses (403) any lesson/video outside it — the client
@@ -47,6 +56,18 @@ export interface LessonVideoSource {
   status: VideoSourceStatus;
   /** A playable URI (HLS `.m3u8` from the edge function, or a cached download URL). */
   uri: string | null;
+  /**
+   * The official Cloudflare Stream player embed to load in a WebView, minted by
+   * the edge function (`https://customer-<code>.cloudflarestream.com/<token>/iframe`).
+   * Present ONLY on an online mint; `null` when serving a cached offline MP4.
+   * A consumer renders the Stream player when this is set, otherwise the cached
+   * MP4 via `uri`. This is server-provided — the client never constructs it.
+   */
+  iframeUrl: string | null;
+  /** The signed Cloudflare Stream token from the online mint (null when offline). */
+  token: string | null;
+  /** The `customer-<code>` subdomain from the online mint (null when offline). */
+  customerCode: string | null;
   /** True when `uri` is a locally/remotely cached offline rendition (not the signed HLS). */
   offline: boolean;
   /** A short, user-facing explanation for the non-`ready` states. */
@@ -115,24 +136,45 @@ async function readCachedDownloadUrl(lessonId: string): Promise<string | null> {
  * rendition and otherwise minting a signed HLS URL via the edge function.
  * Degrades gracefully on 501/403/any error without ever breaking the lesson.
  */
+/** The online-mint fields the edge function returns on a 200. */
+interface StreamSignedUrlResponse {
+  url?: string;
+  token?: string;
+  customerCode?: string;
+  videoId?: string;
+  iframeUrl?: string;
+  expiresAt?: string;
+}
+
 export function useLessonVideo(lessonId: string | undefined): LessonVideoSource {
   const [status, setStatus] = useState<VideoSourceStatus>('loading');
   const [uri, setUri] = useState<string | null>(null);
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [customerCode, setCustomerCode] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
 
   const load = useCallback(async () => {
+    const resetOnlineFields = () => {
+      setUri(null);
+      setIframeUrl(null);
+      setToken(null);
+      setCustomerCode(null);
+      setOffline(false);
+    };
+
     if (!lessonId) {
       setStatus('error');
-      setUri(null);
-      setOffline(false);
+      resetOnlineFields();
       return;
     }
 
     setStatus('loading');
-    setUri(null);
-    setOffline(false);
+    resetOnlineFields();
 
     // 1. PREFER a cached offline rendition — zero network, works in the field.
+    //    Offline plays the cached MP4 via react-native-video, so there is NO
+    //    iframeUrl in this branch (the Stream embed needs connectivity).
     const cached = await readCachedDownloadUrl(lessonId);
     if (cached) {
       setUri(cached);
@@ -148,9 +190,10 @@ export function useLessonVideo(lessonId: string | undefined): LessonVideoSource 
       return;
     }
 
-    // 2. Mint a signed HLS URL from the edge function (tenant-checked server-side).
+    // 2. Mint a signed playback bundle from the edge function (tenant-checked
+    //    server-side; the client sends only the lesson id, never a tenant_id).
     try {
-      const { data, error } = await supabase.functions.invoke<{ url?: string }>(
+      const { data, error } = await supabase.functions.invoke<StreamSignedUrlResponse>(
         'stream-signed-url',
         { body: { lesson_id: lessonId } },
       );
@@ -170,7 +213,13 @@ export function useLessonVideo(lessonId: string | undefined): LessonVideoSource 
         return;
       }
 
+      // Online mint: keep the HLS `url` as `uri` (react-native-video fallback)
+      // and surface the ready-made Stream embed for the WebView player. All of
+      // these come straight from the RLS-checked edge response — never built here.
       setUri(url);
+      setIframeUrl(data?.iframeUrl ?? null);
+      setToken(data?.token ?? null);
+      setCustomerCode(data?.customerCode ?? null);
       setOffline(false);
       setStatus('ready');
     } catch {
@@ -185,5 +234,14 @@ export function useLessonVideo(lessonId: string | undefined): LessonVideoSource 
 
   const refetch = useCallback(() => void load(), [load]);
 
-  return { status, uri, offline, message: messageFor(status), refetch };
+  return {
+    status,
+    uri,
+    iframeUrl,
+    token,
+    customerCode,
+    offline,
+    message: messageFor(status),
+    refetch,
+  };
 }
