@@ -2,12 +2,11 @@
   "name": "soteria-forge",
   "private": true,
   "version": "0.1.0",
-  "description": "Mobile-first, offline-capable, multi-tenant training platform (React Native + Expo, AWS Amplify Gen 2, Cloudflare Stream). Turborepo monorepo.",
+  "description": "Mobile-first, offline-capable, multi-tenant training platform (React Native + Expo, Supabase, Cloudflare Stream). Turborepo monorepo.",
   "packageManager": "npm@10.9.7",
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "backend"
+    "packages/*"
   ],
   "scripts": {
     "build": "turbo run build",
@@ -17,7 +16,7 @@
     "dev": "turbo run dev",
     "dev:mobile": "npm run start --workspace @soteria-forge/mobile",
     "dev:console": "npm run dev --workspace @soteria-forge/console",
-    "backend:sandbox": "npm run sandbox --workspace @soteria-forge/backend"
+    "dev:web": "npm run dev --workspace @soteria-forge/web"
   },
   "devDependencies": {
     "turbo": "^2.10.2"

@@ -1,0 +1,515 @@
+/*
+ * @soteria-forge/web — app layout + component styles.
+ *
+ * EVERY colour, space, radius, and type value references a `--sf-*` design token
+ * from theme/tokens.css (the 1:1 mirror of apps/console + packages/ui). No brand
+ * hex is ever forked into this file — if a value is missing, add a token, don't
+ * hardcode.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sf-font-body);
+  font-size: var(--sf-text-base);
+  line-height: var(--sf-leading-normal);
+  color: var(--sf-text-primary);
+  background: var(--sf-bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--sf-font-display);
+  letter-spacing: var(--sf-tracking-tight);
+  margin: 0;
+}
+
+code {
+  font-family: var(--sf-font-mono);
+  font-size: var(--sf-text-sm);
+  background: var(--sf-bg-subtle);
+  padding: 0 var(--sf-space-1);
+  border-radius: var(--sf-radius-xs);
+}
+
+/* ── Shared primitives ────────────────────────────────────────────────── */
+
+.card {
+  background: var(--sf-bg-surface);
+  border: 1px solid var(--sf-border-subtle);
+  border-radius: var(--sf-radius-lg);
+  box-shadow: var(--sf-shadow-sm);
+}
+
+.btn {
+  font-family: var(--sf-font-body);
+  font-size: var(--sf-text-sm);
+  font-weight: var(--sf-weight-semibold);
+  min-height: var(--sf-touch-target);
+  padding: 0 var(--sf-space-5);
+  border-radius: var(--sf-radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--sf-dur-base) var(--sf-ease-out),
+    box-shadow var(--sf-dur-base) var(--sf-ease-out);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--sf-color-blue-600);
+  color: var(--sf-text-inverse);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--sf-color-blue-700);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--sf-text-primary);
+  border-color: var(--sf-border-default);
+}
+
+.btn--ghost:hover {
+  background: var(--sf-bg-subtle);
+}
+
+.form-error {
+  color: var(--sf-color-danger);
+  font-size: var(--sf-text-sm);
+  margin: 0;
+}
+
+.state {
+  padding: var(--sf-space-8);
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-base);
+}
+
+.state--error {
+  color: var(--sf-color-danger);
+}
+
+.state--empty,
+.state--loading {
+  color: var(--sf-text-secondary);
+}
+
+.state--fullscreen {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+
+.section-title {
+  font-size: var(--sf-text-2xl);
+  margin-bottom: var(--sf-space-6);
+}
+
+/* ── Brand wordmark ───────────────────────────────────────────────────── */
+
+.signin__brand,
+.app-header__brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sf-space-2);
+  font-family: var(--sf-font-display);
+  font-weight: var(--sf-weight-bold);
+  letter-spacing: var(--sf-tracking-wide);
+}
+
+.signin__brand-mark,
+.app-header__mark {
+  color: var(--sf-text-primary);
+}
+
+.signin__brand-forge,
+.app-header__forge {
+  color: var(--sf-color-orange-500);
+}
+
+/* ── Sign-in ──────────────────────────────────────────────────────────── */
+
+.signin {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--sf-space-6);
+}
+
+.signin__card {
+  width: 100%;
+  max-width: var(--sf-container-sm);
+  max-width: 24rem;
+  padding: var(--sf-space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-4);
+}
+
+.signin__title {
+  font-size: var(--sf-text-3xl);
+  margin-top: var(--sf-space-2);
+}
+
+.signin__subtitle {
+  color: var(--sf-text-secondary);
+  margin: 0 0 var(--sf-space-2);
+  font-size: var(--sf-text-sm);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-1);
+}
+
+.field__label {
+  font-size: var(--sf-text-sm);
+  font-weight: var(--sf-weight-medium);
+  color: var(--sf-text-secondary);
+}
+
+.field__input {
+  font-family: var(--sf-font-body);
+  font-size: var(--sf-text-base);
+  min-height: var(--sf-touch-target);
+  padding: 0 var(--sf-space-3);
+  color: var(--sf-text-primary);
+  background: var(--sf-bg-surface);
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+}
+
+.field__input:focus-visible {
+  outline: none;
+  border-color: var(--sf-border-focus);
+  box-shadow: var(--sf-focus-ring);
+}
+
+/* ── Backend-not-configured banner ────────────────────────────────────── */
+
+.banner-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--sf-space-6);
+}
+
+.banner {
+  max-width: var(--sf-container-md);
+  padding: var(--sf-space-8);
+  border-left: 4px solid var(--sf-color-orange-500);
+}
+
+.banner__title {
+  font-size: var(--sf-text-2xl);
+  margin-bottom: var(--sf-space-3);
+}
+
+.banner__body {
+  color: var(--sf-text-secondary);
+  margin: 0;
+  line-height: var(--sf-leading-relaxed);
+}
+
+/* ── App shell ────────────────────────────────────────────────────────── */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sf-space-4);
+  padding: var(--sf-space-3) var(--sf-space-6);
+  background: var(--sf-bg-surface);
+  border-bottom: 1px solid var(--sf-border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-header__right {
+  display: flex;
+  align-items: center;
+  gap: var(--sf-space-3);
+}
+
+.app-header__user {
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-sm);
+}
+
+.app-main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--sf-container-xl);
+  margin: 0 auto;
+  padding: var(--sf-space-8) var(--sf-space-6);
+}
+
+/* ── Course list ──────────────────────────────────────────────────────── */
+
+.course-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sf-space-4);
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+}
+
+.course-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-2);
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  padding: var(--sf-space-5);
+  cursor: pointer;
+  transition: box-shadow var(--sf-dur-base) var(--sf-ease-out),
+    transform var(--sf-dur-base) var(--sf-ease-out);
+}
+
+.course-card:hover {
+  box-shadow: var(--sf-shadow-md);
+  transform: translateY(-2px);
+}
+
+.course-card:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}
+
+.course-card__status {
+  font-size: var(--sf-text-2xs);
+  font-weight: var(--sf-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+  color: var(--sf-text-muted);
+}
+
+.course-card__status[data-status='published'] {
+  color: var(--sf-status-complete);
+}
+
+.course-card__title {
+  font-size: var(--sf-text-lg);
+}
+
+.course-card__desc {
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-sm);
+  margin: 0;
+}
+
+.course-card__meta {
+  margin-top: auto;
+  font-size: var(--sf-text-xs);
+  color: var(--sf-text-muted);
+}
+
+/* ── Course detail ────────────────────────────────────────────────────── */
+
+.course-detail__back {
+  margin-bottom: var(--sf-space-5);
+}
+
+.course-detail__header {
+  margin-bottom: var(--sf-space-6);
+}
+
+.course-detail__title {
+  font-size: var(--sf-text-3xl);
+}
+
+.course-detail__desc {
+  color: var(--sf-text-secondary);
+  margin-top: var(--sf-space-2);
+}
+
+.course-detail__body {
+  display: grid;
+  gap: var(--sf-space-6);
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .course-detail__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 16:9 video area */
+.video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--sf-color-ink-900);
+  border-radius: var(--sf-radius-lg);
+  overflow: hidden;
+}
+
+.video-frame--placeholder {
+  display: grid;
+  place-items: center;
+}
+
+.content-placeholder {
+  text-align: center;
+  color: var(--sf-text-inverse);
+  padding: var(--sf-space-6);
+  max-width: 32ch;
+}
+
+.content-placeholder__kind {
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-caps);
+  font-size: var(--sf-text-xs);
+  color: var(--sf-color-blue-300);
+  margin-bottom: var(--sf-space-2);
+}
+
+.stream-player {
+  position: absolute;
+  inset: 0;
+}
+
+.stream-player--loading,
+.stream-player--placeholder {
+  display: grid;
+  place-items: center;
+  gap: var(--sf-space-3);
+  text-align: center;
+  color: var(--sf-text-inverse);
+  padding: var(--sf-space-6);
+}
+
+.stream-player--placeholder .btn,
+.stream-player--placeholder button {
+  min-height: var(--sf-touch-target);
+  padding: 0 var(--sf-space-5);
+  border-radius: var(--sf-radius-md);
+  border: 1px solid var(--sf-border-default);
+  background: var(--sf-bg-surface);
+  color: var(--sf-text-primary);
+  cursor: pointer;
+}
+
+.lesson-meta {
+  margin-top: var(--sf-space-4);
+}
+
+.lesson-meta__title {
+  font-size: var(--sf-text-xl);
+}
+
+.lesson-meta__desc {
+  color: var(--sf-text-secondary);
+  margin-top: var(--sf-space-2);
+}
+
+/* Lesson outline */
+.course-detail__outline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-5);
+}
+
+.module-block__title {
+  font-size: var(--sf-text-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+  color: var(--sf-text-muted);
+  margin-bottom: var(--sf-space-2);
+}
+
+.lesson-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-1);
+}
+
+.lesson-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sf-space-3);
+  width: 100%;
+  text-align: left;
+  padding: var(--sf-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--sf-radius-md);
+  background: transparent;
+  color: var(--sf-text-primary);
+  font-size: var(--sf-text-sm);
+  cursor: pointer;
+  transition: background var(--sf-dur-base) var(--sf-ease-out);
+}
+
+.lesson-item:hover {
+  background: var(--sf-bg-subtle);
+}
+
+.lesson-item:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}
+
+.lesson-item[data-active='true'] {
+  background: var(--sf-color-blue-50);
+  border-color: var(--sf-border-focus);
+  font-weight: var(--sf-weight-semibold);
+}
+
+.lesson-item__kind {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--sf-radius-full);
+  background: var(--sf-bg-subtle);
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-xs);
+  flex: 0 0 auto;
+}
+
+.lesson-item__kind[data-kind='video'] {
+  background: var(--sf-color-blue-100);
+  color: var(--sf-color-blue-700);
+}
+
+.lesson-item__title {
+  flex: 1;
+}

@@ -1,12 +1,13 @@
 name: CI
 
 # Phase-0 CI scope: the rebuild is defined-as-code and UNDEPLOYED. The React
-# Native workspaces (apps/mobile AND packages/ui — the latter is now the Soteria
-# Forge UI kit, RN source consumed via Metro) and the backend need native / cloud
-# toolchains + a lockfile that only exist after `npm install`, so they can't be
-# type-checked here yet. CI verifies the one workspace that IS self-contained:
+# Native workspace (apps/mobile) and packages/ui (the Soteria Forge UI kit, RN
+# source consumed via Metro), plus the web apps (apps/web React, apps/console Vue),
+# need framework toolchains + a lockfile that only exist after `npm install`, so
+# they can't be type-checked here yet. CI verifies the one workspace that IS
+# self-contained:
 #   - @soteria-forge/shared : the domain contract (type-check + unit tests)
-# As the app/ui/backend become installable (lockfile committed), extend the matrix.
+# As the apps/ui become installable (lockfile committed), extend the matrix.
 
 on:
   pull_request:

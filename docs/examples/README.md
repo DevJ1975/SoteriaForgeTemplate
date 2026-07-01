@@ -17,19 +17,16 @@ is ever sent) and hands that token to the official `<Stream>` player via `src={t
 `customerCode`. It degrades on 501 (provider not configured) / 403 (video not in your tenant) /
 other errors, and never gates anything.
 
-### Where should the web player live? (open decision)
+### It now has a home: `apps/web`
 
-This file is intentionally **not** added as a workspace package, because that would introduce a new
-React-web build target and touch centrally-owned root wiring (`package.json` workspaces,
-`turbo.json`). Pick a home first:
+The in-repo React web surface was built — **`apps/web`** (a Vite + React learner/preview app:
+Supabase sign-in → browse RLS-scoped courses → play video lessons). Its live implementation lives at
+`apps/web/src/components/StreamWebPlayer.tsx`, which imports the app's own `supabase` client.
 
-- **A new `apps/web`** — a full learner/preview web app (new Vite/Next React app, its own deploy).
-- **Embed in an existing React site** — drop `StreamWebPlayer.tsx` in and pass it an authenticated
-  `supabase` client + a `lessonId`.
-- **Keep as reference only** — mobile (WebView) + console (iframe preview) already cover playback;
-  leave this as documentation.
+**This `docs/examples/` copy is kept as the PORTABLE reference** — it takes an authenticated
+`supabase` client as a prop, so you can drop it into an **external** React site (outside this
+monorepo) without wiring. For the in-repo app, use `apps/web` instead.
 
-Once the home is chosen: `npm add @cloudflare/stream-react @supabase/supabase-js` in that app and
-import the component. See `docs/OPERATIONS.md` → "Cloudflare Stream (video)" for the secrets the
-edge function needs before it returns a token (until then it returns 501 and the player shows the
-"not available yet" placeholder).
+Either way: `npm add @cloudflare/stream-react @supabase/supabase-js` in the host app. See
+`docs/OPERATIONS.md` → "Cloudflare Stream (video)" for the secrets the edge function needs before it
+returns a token (until then it returns 501 and the player shows the "not available yet" placeholder).
