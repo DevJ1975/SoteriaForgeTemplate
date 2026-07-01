@@ -87,6 +87,13 @@ RLS** via `public.current_tenant_id()`, with new rows tenant-stamped by a
 [`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md), and
 `supabase/migrations/…02_rls_policies.sql`.
 
+## Operations
+
+[`OPERATIONS.md`](./OPERATIONS.md) is the operator runbook for the live Supabase
+project — the console-only knobs that can't be set in code (Auth hardening toggles:
+confirm-email, leaked-password protection; the OAuth Server note), the `.env` config,
+the `db push` / type-gen workflow, and deferred external-account items.
+
 ## Security review
 
 [`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md) records the adversarial tenant-isolation
