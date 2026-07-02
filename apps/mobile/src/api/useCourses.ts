@@ -6,10 +6,11 @@
  * consume. That contract is UNCHANGED — CourseList did not need to be touched.
  *
  * SOURCE SELECTION (the offline seam, now filled):
- *   - ONLINE:  read from AppSync via `getDataClient`, then HYDRATE the local
- *     WatermelonDB cache so the next offline session has fresh data. If the
- *     network read fails, fall back to whatever is cached locally rather than
- *     erroring — a flaky connection must never blank the list.
+ *   - ONLINE:  read from Supabase via `getDataClient` (RLS scopes the query to
+ *     the caller's tenant server-side), then HYDRATE the local WatermelonDB
+ *     cache so the next offline session has fresh data. If the network read
+ *     fails, fall back to whatever is cached locally rather than erroring — a
+ *     flaky connection must never blank the list.
  *   - OFFLINE: read straight from the local store (`localCourseStore`). The local
  *     store is the source of truth until sync; the UI is NEVER blocked on network.
  *
@@ -57,7 +58,7 @@ export function useCourses(): UseCoursesResult {
       return;
     }
 
-    // ONLINE: read from AppSync, hydrate the cache, and show the fresh list.
+    // ONLINE: read from Supabase (RLS-scoped), hydrate the cache, show the fresh list.
     try {
       const client = getDataClient(tenantId);
       const data = await client.listCourses();

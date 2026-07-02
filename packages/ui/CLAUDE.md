@@ -14,21 +14,22 @@ adds to — and never contradicts — the root `CLAUDE.md`.
 - **Ember/spark** palette + **Oswald** (display) / **Barlow Semi Condensed**
   (body) type, with built-in **light and dark** schemes — one token source in
   `src/theme.ts`.
-- ~31 components: form controls, surfaces/feedback, **gamification**, and
-  **reporting**. Single import surface is `src/index.ts`.
+- ~32 components: form controls, surfaces/feedback, **gamification**, and
+  **reporting**, plus motion/loading utilities (`Skeleton`, `useReducedMotion`).
+  Single import surface is `src/index.ts`.
 
 ## Scope (read this first)
 
-- **`apps/mobile` is the only consumer.** `apps/console` (Vue) stays on its own
-  Ink/Bone/Cobalt tokens (`apps/console/src/theme/tokens.css`) and must **not**
-  import this package — these are React Native primitives, wrong for the web app.
-- **Brand divergence is intentional and unresolved.** This kit is ember/spark
-  while console + the root `CLAUDE.md` are Ink/Bone/Cobalt. That is a documented
-  **open decision** for the owner — see
-  [ADR-0006 › Consequences](../../docs/adr/0006-adopt-soteria-forge-ui-kit.md).
-  Do **not** "reconcile" it here by hardcoding hexes; if the owner picks the
-  re-skin path, change it at the token source (`palette` / `lightTheme` /
-  `darkTheme` in `src/theme.ts`).
+- **`apps/mobile` is the only consumer of the components.** `apps/console` (Vue)
+  and `apps/web` (React DOM) must **not** import this package — these are React
+  Native primitives, wrong for web apps.
+- **Ember/spark is THE brand, platform-wide** (see
+  [ADR-0009](../../docs/adr/0009-unify-brand-ember-spark.md)).
+  `src/theme.ts` is the **canonical brand source**: `apps/web/src/theme/tokens.css`
+  and `apps/console/src/theme/tokens.css` mirror its **values** as CSS custom
+  properties. A brand change starts here (`palette` / `lightTheme` / `darkTheme`)
+  and is then mirrored 1:1 into both `tokens.css` files — never the other way
+  around, and never by hardcoding hexes in components.
 
 ## Consumed as source via Metro (no build step)
 
@@ -73,15 +74,23 @@ Exports (all from `src/theme.ts`, re-exported by `src/index.ts`):
 
 ## Component inventory
 
-- **Form controls:** `Button`, `TextField`, `Select`, `Slider`, `Switch`,
-  `Checkbox`, `RadioGroup`, `DatePicker`.
-- **Surfaces / feedback:** `Card`, `Badge`, `Chip`, `ProgressBar`, `Divider`,
-  `Dialog`, `Tabs`, `Accordion`, `Avatar`, `Toast`.
+- **Form controls:** `Button` (pressed-scale feedback), `TextField` (forwards a
+  ref to the inner `TextInput` + `returnKeyType`/`onSubmitEditing`/`blurOnSubmit`
+  passthrough for focus chains), `Select`, `Slider`, `Switch`, `Checkbox`,
+  `RadioGroup`, `DatePicker`.
+- **Surfaces / feedback:** `Card`, `Badge`, `Chip`, `ProgressBar` (animated fill,
+  `animated?: boolean`), `Divider`, `Dialog`, `Tabs`, `Accordion`, `Avatar`,
+  `Toast` (fade + slide entrance), `Skeleton` (pulsing loading placeholder —
+  `line`/`block`/`circle`).
 - **Gamification:** `AchievementBadge` (metallic medallion — tiers/shapes/locked),
   `RankMedal`, `LeaderboardRow`, `BadgeGlyph` (13 achievement glyphs).
 - **Reporting / brand:** `SectionHeading`, `StatTile`, `DataTable`, `TrendChart`
   (react-native-svg), `ReportPage` / `ScaledSurface`, `Certificate`, `Logo` /
-  `Wordmark`, `icons`.
+  `Wordmark`, `icons` (`Check`, `ChevronDown`, `Close`, `Search`, `HomeIcon`,
+  `CoursesIcon`, `ShowcaseIcon`, `AwardIcon`, `SunIcon`, `MoonIcon`).
+- **Motion / a11y:** `useReducedMotion()` (from `src/motion.ts`) — all kit
+  animations honor OS reduced-motion; interactive/informational components ship
+  accessibility roles + labels by default.
 - **Demo screens (default exports):** `ForgeUIShowcase`, `ReportScreen`.
 
 ## House rules (local)

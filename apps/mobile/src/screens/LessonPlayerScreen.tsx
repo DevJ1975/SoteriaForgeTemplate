@@ -36,11 +36,12 @@ import {
   xapiVerbs,
   type XapiObject,
 } from '@soteria-forge/shared';
-import { Badge, Button, Card, Chip, Divider, ProgressBar, useTheme } from '@soteria-forge/ui';
+import { Badge, Button, Card, Chip, Divider, Skeleton, useTheme, useToast } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useAuth } from '../auth';
 import { useLesson, useLessonVideo, type LessonDetail } from '../api';
-import { completionQueue } from '../offline';
+import { completionQueue, useConnectivityOptional } from '../offline';
+import * as haptics from '../lib/haptics';
 
 /** Human label + prompt for each lesson kind's placeholder body. */
 function bodyCopy(kind: LessonDetail['kind']): { label: string; prompt: string } {
@@ -85,7 +86,11 @@ function bodyCopy(kind: LessonDetail['kind']): { label: string; prompt: string }
 export function LessonPlayerScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const { user } = useAuth();
+  // The SAME connectivity source OfflineBanner renders from — so the toast
+  // wording and the banner can never disagree about being offline.
+  const { isOnline } = useConnectivityOptional();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { lesson, loading, backendPending, error, refetch } = useLesson(id);
 
@@ -96,19 +101,22 @@ export function LessonPlayerScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   if (loading) {
+    // Skeletons shaped like the loaded layout: header card, play surface, body.
     return (
-      <Screen scroll={false} contentStyle={styles.center}>
-        <ProgressBar value={0.4} style={{ width: 160 }} />
-        <Text
-          style={{
-            color: theme.colors.textMuted,
-            fontFamily: theme.fonts.body,
-            fontSize: 14,
-            marginTop: 12,
-          }}
-        >
-          Loading lesson…
-        </Text>
+      <Screen scroll={false}>
+        <Card raised>
+          <View style={styles.headerTop}>
+            <Skeleton variant="line" height={30} width={84} radius="pill" />
+          </View>
+          <Skeleton variant="line" height={22} width="72%" style={{ marginTop: 12 }} />
+          <Skeleton variant="line" width={120} style={{ marginTop: 12 }} />
+        </Card>
+        <Skeleton variant="block" height={190} radius="md" />
+        <Card>
+          <Skeleton variant="line" width="94%" />
+          <Skeleton variant="line" width="88%" style={{ marginTop: 8 }} />
+          <Skeleton variant="line" width="60%" style={{ marginTop: 8 }} />
+        </Card>
       </Screen>
     );
   }
@@ -182,8 +190,19 @@ export function LessonPlayerScreen() {
       // the local outbox on focus and advances its progress bar. This works fully
       // offline — the write is local SQLite and the OfflineBanner shows it pending.
       setJustCompleted(true);
+      haptics.success();
+      // Confirmation toast BEFORE navigating back (the root ToastProvider keeps
+      // it visible across the transition). Offline wording comes from the same
+      // connectivity source the OfflineBanner renders from.
+      toast(
+        isOnline
+          ? 'Lesson complete'
+          : 'Completion recorded — will sync when you’re back online',
+        { type: 'success' },
+      );
       router.back();
     } catch (err) {
+      haptics.error();
       setSubmitError(
         err instanceof Error ? err.message : 'Could not record completion. Try again.',
       );
@@ -450,7 +469,6 @@ function Notice({
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 },
   playerPlaceholder: {

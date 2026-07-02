@@ -86,11 +86,12 @@ rows keyed by a stable UUID can never disagree. Use `@soteria-forge/shared` buil
 (`generateStatementId`, `createCompletionStatement`); the id — never the timestamp — is the
 idempotency key.
 
-## Brand tokens (Ink/Bone/Cobalt)
+## Brand tokens (ember/spark)
 
-ink `#0E1A2E` · blue `#3DA9FC` · orange `#FF6B1F` · paper `#F5F4EF`. Canonical scale lives in
-`apps/console/src/theme/tokens.css` and `packages/ui` (mirrored 1:1). Never hardcode a brand hex
-in a component.
+ember `#E8551F` · spark `#FFB552` · ink `#1A1D22` · paper `#F1EEE8`
+([ADR-0009](docs/adr/0009-unify-brand-ember-spark.md)). The canonical scale lives in
+`packages/ui/src/theme.ts`; `apps/web/src/theme/tokens.css` and `apps/console/src/theme/tokens.css`
+mirror its VALUES and are byte-identical to each other. Never hardcode a brand hex in a component.
 
 ## House rules
 

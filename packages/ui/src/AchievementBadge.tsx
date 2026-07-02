@@ -115,12 +115,29 @@ export function AchievementBadge({
     </View>
   );
 
+  const a11yLabel = [
+    label ?? `${tier} badge`,
+    sublabel,
+    locked ? 'locked' : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   if (!label && !sublabel) {
-    return <View style={[{ opacity: locked ? 0.9 : 1 }, style]}>{medallion}</View>;
+    return (
+      <View accessible accessibilityRole="image" accessibilityLabel={a11yLabel} style={[{ opacity: locked ? 0.9 : 1 }, style]}>
+        {medallion}
+      </View>
+    );
   }
 
   return (
-    <View style={[{ alignItems: 'center', width: size + 28, opacity: locked ? 0.9 : 1 }, style]}>
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={a11yLabel}
+      style={[{ alignItems: 'center', width: size + 28, opacity: locked ? 0.9 : 1 }, style]}
+    >
       {medallion}
       {label ? (
         <Text numberOfLines={1} style={{ marginTop: 9, fontFamily: t.fonts.display, fontWeight: '700', fontSize: 13.5, letterSpacing: 0.4, textTransform: 'uppercase', color: locked ? t.colors.textMuted : t.colors.text, textAlign: 'center' }}>

@@ -30,7 +30,7 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    linear-gradient(135deg, rgb(61 169 252 / 8%), transparent 32%),
+    linear-gradient(135deg, rgb(232 85 31 / 8%), transparent 32%),
     var(--sf-bg-base);
 }
 
@@ -92,8 +92,8 @@ textarea {
 
 .console-sidebar .nav-active,
 .console-sidebar button:hover {
-  color: var(--sf-color-blue-700);
-  background: var(--sf-color-blue-50);
+  color: var(--sf-color-ember-700);
+  background: var(--sf-color-ember-50);
 }
 
 .console-workspace {
@@ -110,7 +110,7 @@ textarea {
 
 .console-header p {
   margin: 0 0 8px;
-  color: var(--sf-color-blue-700);
+  color: var(--sf-color-ember-700);
   font-size: 0.78rem;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -136,7 +136,7 @@ textarea {
 .primary-action,
 .secondary-action {
   color: #ffffff;
-  background: var(--sf-color-blue-700);
+  background: var(--sf-color-ember-700);
   box-shadow: var(--sf-shadow-sm);
 }
 
@@ -151,11 +151,11 @@ textarea {
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgb(255 107 31 / 34%);
+  border: 1px solid rgb(232 85 31 / 34%);
   border-radius: var(--sf-radius-sm);
   padding: 0 12px;
   color: var(--sf-color-ink);
-  background: var(--sf-color-orange-50);
+  background: var(--sf-color-spark-50);
   cursor: pointer;
   font-weight: 800;
 }
@@ -250,7 +250,7 @@ a:focus-visible {
 }
 
 .course-panel {
-  background: linear-gradient(180deg, #ffffff, var(--sf-color-blue-50));
+  background: linear-gradient(180deg, #ffffff, var(--sf-color-ember-50));
 }
 
 .readiness-score {
@@ -259,7 +259,7 @@ a:focus-visible {
 
 .readiness-score strong {
   display: block;
-  color: var(--sf-color-blue-700);
+  color: var(--sf-color-ember-700);
   font-size: 2.4rem;
   line-height: 1;
 }
@@ -301,11 +301,11 @@ a:focus-visible {
 
 .invite-error {
   margin: 0;
-  border: 1px solid rgb(200 77 47 / 34%);
+  border: 1px solid rgb(192 57 43 / 34%);
   border-radius: var(--sf-radius-sm);
   padding: 10px 12px;
   color: var(--sf-color-danger);
-  background: rgb(200 77 47 / 8%);
+  background: rgb(192 57 43 / 8%);
   font-size: 0.85rem;
   font-weight: 800;
 }
@@ -347,7 +347,7 @@ a:focus-visible {
   border: 1px solid var(--sf-border-default);
   border-radius: var(--sf-radius-sm);
   padding: 6px 10px;
-  color: var(--sf-color-blue-700);
+  color: var(--sf-color-ember-700);
   background: var(--sf-bg-surface);
   cursor: pointer;
   text-align: left;
@@ -360,7 +360,7 @@ a:focus-visible {
 }
 
 .invite-token:hover {
-  background: var(--sf-color-blue-50);
+  background: var(--sf-color-ember-50);
 }
 
 /* ── Provision-tenant panel (super-admin only) ──────────────────────────── */
@@ -381,11 +381,11 @@ a:focus-visible {
 
 .provision-error {
   margin: 0;
-  border: 1px solid rgb(200 77 47 / 34%);
+  border: 1px solid rgb(192 57 43 / 34%);
   border-radius: var(--sf-radius-sm);
   padding: 10px 12px;
   color: var(--sf-color-danger);
-  background: rgb(200 77 47 / 8%);
+  background: rgb(192 57 43 / 8%);
   font-size: 0.85rem;
   font-weight: 800;
 }
@@ -466,11 +466,11 @@ a:focus-visible {
 
 .content-error {
   margin: 0;
-  border: 1px solid rgb(200 77 47 / 34%);
+  border: 1px solid rgb(192 57 43 / 34%);
   border-radius: var(--sf-radius-sm);
   padding: 10px 12px;
   color: var(--sf-color-danger);
-  background: rgb(200 77 47 / 8%);
+  background: rgb(192 57 43 / 8%);
   font-size: 0.85rem;
   font-weight: 800;
 }
@@ -519,13 +519,13 @@ a:focus-visible {
 }
 
 .content-row:hover {
-  border-color: var(--sf-color-blue-200);
-  background: var(--sf-color-blue-50);
+  border-color: var(--sf-color-ember-200);
+  background: var(--sf-color-ember-50);
 }
 
 .content-row-active {
-  border-color: var(--sf-color-blue-700);
-  background: var(--sf-color-blue-50);
+  border-color: var(--sf-color-ember-700);
+  background: var(--sf-color-ember-50);
 }
 
 .content-editor-head {
@@ -620,7 +620,7 @@ a:focus-visible {
 }
 
 .content-icon-btn:hover {
-  background: rgb(200 77 47 / 8%);
+  background: rgb(192 57 43 / 8%);
 }
 
 .content-add-lesson {
@@ -728,28 +728,28 @@ a:focus-visible {
   height: 42px;
   flex: none;
   border-radius: var(--sf-radius-sm);
-  color: var(--sf-color-blue-700);
-  background: var(--sf-color-blue-50);
+  color: var(--sf-color-ember-700);
+  background: var(--sf-color-ember-50);
 }
 
 .report-tile-icon--rate {
-  color: var(--sf-color-blue-700);
-  background: var(--sf-color-blue-50);
+  color: var(--sf-color-ember-700);
+  background: var(--sf-color-ember-50);
 }
 
 .report-tile-icon--complete {
   color: var(--sf-status-complete);
-  background: rgb(47 111 74 / 12%);
+  background: rgb(31 138 91 / 12%);
 }
 
 .report-tile-icon--progress {
   color: var(--sf-status-progress);
-  background: var(--sf-color-orange-50);
+  background: var(--sf-color-spark-50);
 }
 
 .report-tile-icon--overdue {
   color: var(--sf-status-overdue);
-  background: rgb(200 77 47 / 10%);
+  background: rgb(192 57 43 / 10%);
 }
 
 .report-tile-body {
@@ -907,7 +907,7 @@ a:focus-visible {
 }
 
 .report-feed-object {
-  color: var(--sf-color-blue-700);
+  color: var(--sf-color-ember-700);
 }
 
 .report-feed-time {
@@ -962,7 +962,7 @@ a:focus-visible {
 
 .content-video-linked {
   color: var(--sf-status-complete);
-  background: rgb(47 111 74 / 12%);
+  background: rgb(31 138 91 / 12%);
 }
 
 .content-video-unlinked {
@@ -1107,14 +1107,14 @@ a:focus-visible {
   border: 1px solid var(--sf-border-default);
   border-radius: var(--sf-radius-sm);
   padding: 6px 10px;
-  color: var(--sf-color-blue-700);
+  color: var(--sf-color-ember-700);
   background: var(--sf-bg-surface);
   cursor: pointer;
   text-align: left;
 }
 
 .cert-copy:hover {
-  background: var(--sf-color-blue-50);
+  background: var(--sf-color-ember-50);
 }
 
 .cert-copy code {
@@ -1160,7 +1160,7 @@ a:focus-visible {
 
 .cert-course > svg {
   flex: none;
-  color: var(--sf-color-blue-700);
+  color: var(--sf-color-ember-700);
 }
 
 .cert-date {

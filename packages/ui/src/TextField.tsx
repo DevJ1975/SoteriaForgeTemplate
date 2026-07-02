@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef } from 'react';
 import { View, Text, TextInput, Pressable } from 'react-native';
 import type { StyleProp, ViewStyle, TextInputProps } from 'react-native';
 import { useTheme } from './theme';
@@ -17,13 +17,26 @@ export type TextFieldProps = {
   multiline?: boolean;
   keyboardType?: TextInputProps['keyboardType'];
   autoCapitalize?: TextInputProps['autoCapitalize'];
+  /* focus-chain passthrough (forwarded to the underlying TextInput) */
+  returnKeyType?: TextInputProps['returnKeyType'];
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
+  blurOnSubmit?: TextInputProps['blurOnSubmit'];
   style?: StyleProp<ViewStyle>;
 };
 
-export function TextField({
-  label, value, onChangeText, placeholder, helperText, errorText,
-  disabled, secureTextEntry, leftIcon, rightIcon, multiline, keyboardType, autoCapitalize, style,
-}: TextFieldProps) {
+/**
+ * Labelled input. Forwards its ref to the underlying `TextInput`, so screens
+ * can chain focus: `emailRef.current?.focus()` from a previous field's
+ * `onSubmitEditing` (pair with `returnKeyType`/`blurOnSubmit`).
+ */
+export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
+  {
+    label, value, onChangeText, placeholder, helperText, errorText,
+    disabled, secureTextEntry, leftIcon, rightIcon, multiline, keyboardType, autoCapitalize,
+    returnKeyType, onSubmitEditing, blurOnSubmit, style,
+  },
+  ref,
+) {
   const t = useTheme();
   const [focused, setFocused] = useState(false);
   const invalid = !!errorText;
@@ -55,6 +68,7 @@ export function TextField({
       >
         {leftIcon ? <View style={{ paddingTop: multiline ? 2 : 0 }}>{leftIcon}</View> : null}
         <TextInput
+          ref={ref}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -64,6 +78,9 @@ export function TextField({
           multiline={multiline}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={blurOnSubmit}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           style={{
@@ -86,4 +103,4 @@ export function TextField({
       ) : null}
     </View>
   );
-}
+});

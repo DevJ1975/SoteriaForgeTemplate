@@ -25,6 +25,9 @@ export function Badge({ label, tone = 'primary', solid, style }: BadgeProps) {
   };
   return (
     <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={label}
       style={[
         {
           alignSelf: 'flex-start',

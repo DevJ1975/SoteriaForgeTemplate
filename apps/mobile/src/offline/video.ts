@@ -13,10 +13,11 @@
  * 1. RESOLVE a short-lived, tenant-authorized MP4 download URL from Cloudflare
  *    Stream. Cloudflare Stream exposes a downloadable MP4 rendition per video
  *    (`.../<uid>/downloads/default.mp4`) gated by a signed token. The token is
- *    minted server-side (an AppSync/Lambda call) ONLY after the resolver has
- *    checked the caller's verified tenant owns the VideoAsset — so a device can
- *    never fetch another tenant's media. We never embed Cloudflare account
- *    secrets in the app; the app only ever receives the signed, expiring URL.
+ *    minted server-side (the `stream-signed-url` Supabase edge function) ONLY
+ *    after it has read the `video_assets` row THROUGH the caller's JWT (so RLS
+ *    confirms the caller's tenant owns it) — a device can never fetch another
+ *    tenant's media. We never embed Cloudflare account secrets in the app; the
+ *    app only ever receives the signed, expiring URL.
  *
  * 2. DOWNLOAD the MP4 to a temp path (resumable; survives backgrounding).
  *
@@ -71,8 +72,8 @@ export interface SecureKeyStore {
 
 /**
  * Resolves a signed, tenant-authorized Cloudflare Stream MP4 URL for a video.
- * The real impl calls a tenant-scoped AppSync query/Lambda that mints the signed
- * URL only after verifying the caller's token owns the asset. Returns null if the
+ * The real impl calls the tenant-scoped `stream-signed-url` edge function, which
+ * mints the signed URL only after RLS confirms the caller owns the asset. Returns null if the
  * caller is not authorized (which, given server-side tenant checks, means the
  * asset is not this tenant's — the download simply does not happen).
  */

@@ -4,6 +4,7 @@
 export { Screen } from './Screen';
 export type { ScreenProps } from './Screen';
 export { OfflineBanner } from './OfflineBanner';
+export { AppearanceToggle } from './AppearanceToggle';
 export { CertificateView } from './CertificateView';
 export type { CertificateViewProps } from './CertificateView';
 /**

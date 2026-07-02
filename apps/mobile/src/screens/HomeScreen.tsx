@@ -13,6 +13,7 @@
  * list reads, so nothing here invents cross-tenant numbers. Colour/type come
  * from useTheme() tokens; no hardcoded brand hex.
  */
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { hasMinimumGroup } from '@soteria-forge/shared';
@@ -27,7 +28,7 @@ import {
   StatTile,
   useTheme,
 } from '@soteria-forge/ui';
-import { Screen } from '../components';
+import { AppearanceToggle, Screen } from '../components';
 import { useAuth } from '../auth';
 import { useCourses, useCertificates } from '../api';
 
@@ -37,10 +38,31 @@ export function HomeScreen() {
   const { user, signOut } = useAuth();
   // Tenant-scoped by construction (bound to the verified tenantId inside the
   // hook). Drives the readiness KPIs below.
-  const { courses, backendPending } = useCourses();
+  const {
+    courses,
+    backendPending,
+    loading: coursesLoading,
+    refetch: refetchCourses,
+  } = useCourses();
   // The learner's earned certificates (RLS-scoped, owner-only) — drives the
   // "My Certificates" Home affordance count.
-  const { certificates } = useCertificates();
+  const {
+    certificates,
+    loading: certificatesLoading,
+    refetch: refetchCertificates,
+  } = useCertificates();
+
+  // Pull-to-refresh re-reads both tenant-scoped sources; the spinner clears
+  // once both hooks settle.
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    if (!coursesLoading && !certificatesLoading) setRefreshing(false);
+  }, [coursesLoading, certificatesLoading]);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refetchCourses();
+    refetchCertificates();
+  }, [refetchCourses, refetchCertificates]);
 
   if (!user) return null;
 
@@ -71,7 +93,7 @@ export function HomeScreen() {
   const readinessPct = Math.round(readiness * 100);
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       {/* Greeting header — verified identity + tenant */}
       <View style={styles.header}>
         <Avatar name={displayName} size={52} status="online" ringColor={theme.colors.bg} />
@@ -103,8 +125,13 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {/* KPI row — assigned / complete / overdue for THIS tenant */}
-      <View style={styles.kpiRow}>
+      {/* KPI row — assigned / complete / in-progress for THIS tenant. Grouped
+          for screen readers: one focusable summary instead of three stops. */}
+      <View
+        accessible
+        accessibilityLabel={`Training summary: ${assigned} assigned, ${complete} complete, ${inProgress} in progress`}
+        style={styles.kpiRow}
+      >
         <StatTile value={assigned} label="Assigned" />
         <StatTile value={complete} label="Complete" accent={theme.colors.success} />
         <StatTile value={inProgress} label="In progress" accent={theme.colors.warning} />
@@ -235,6 +262,9 @@ export function HomeScreen() {
           onPress={() => router.push('/(app)/certificates')}
         />
       </Card>
+
+      {/* Appearance: light / dark / system, persisted across restarts. */}
+      <AppearanceToggle />
 
       <Button title="Sign out" variant="ghost" onPress={() => void signOut()} />
     </Screen>

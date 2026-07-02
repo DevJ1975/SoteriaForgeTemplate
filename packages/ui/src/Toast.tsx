@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
 import { Animated, View, Text, Platform } from 'react-native';
 import { useTheme, elevation } from './theme';
+import { useReducedMotion } from './motion';
 
 export type ToastType = 'default' | 'success' | 'danger' | 'info';
 export type ShowToast = (message: string, opts?: { type?: ToastType; duration?: number }) => void;
@@ -19,20 +20,38 @@ export function useToast(): ShowToast {
  */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const t = useTheme();
+  const reducedMotion = useReducedMotion();
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(12)).current;
   const timer = useRef<any>(null);
 
   const show = useCallback<ShowToast>((message, opts = {}) => {
     const type = opts.type || 'default';
     const duration = opts.duration ?? 2600;
     setToast({ message, type });
-    Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: Platform.OS !== 'web' }).start();
+    const native = Platform.OS !== 'web';
+    if (reducedMotion) {
+      // No entrance motion — appear/disappear instantly.
+      opacity.setValue(1);
+      translateY.setValue(0);
+    } else {
+      translateY.setValue(12);
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: native }),
+        Animated.timing(translateY, { toValue: 0, duration: 180, useNativeDriver: native }),
+      ]).start();
+    }
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: Platform.OS !== 'web' }).start(() => setToast(null));
+      if (reducedMotion) {
+        opacity.setValue(0);
+        setToast(null);
+        return;
+      }
+      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: native }).start(() => setToast(null));
     }, duration);
-  }, [opacity]);
+  }, [opacity, translateY, reducedMotion]);
 
   const accent =
     toast?.type === 'success' ? t.colors.success :
@@ -43,7 +62,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastCtx.Provider value={show}>
       {children}
       {toast ? (
-        <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 20, right: 20, bottom: 40, opacity, alignItems: 'center' }}>
+        <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 20, right: 20, bottom: 40, opacity, transform: [{ translateY }], alignItems: 'center' }}>
           <View
             style={[
               { maxWidth: 560, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.mode === 'dark' ? '#262A31' : '#1A1D22', borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18 },

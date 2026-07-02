@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { useTheme } from './theme';
 import { Avatar } from './Avatar';
 import { RankMedal } from './RankMedal';
@@ -29,10 +29,23 @@ export function LeaderboardRow({
   const deltaColor = delta == null || delta === 0 ? t.colors.textMuted : delta > 0 ? t.colors.success : t.colors.danger;
   const deltaGlyph = delta == null || delta === 0 ? '—' : delta > 0 ? '▲' : '▼';
 
+  const a11yLabel = [
+    `Rank ${rank}`,
+    name,
+    sublabel,
+    `${score}${scoreUnit ? ` ${scoreUnit}` : ''}`,
+    delta != null && delta !== 0 ? `${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return (
-    <View
-      // @ts-ignore onStartShouldSetResponder for press without importing Pressable when not needed
-      onTouchEnd={onPress}
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      accessible
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={a11yLabel}
       style={[
         {
           flexDirection: 'row',
@@ -89,6 +102,6 @@ export function LeaderboardRow({
           </Text>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }

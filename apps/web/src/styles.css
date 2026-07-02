@@ -32,7 +32,8 @@ h1,
 h2,
 h3 {
   font-family: var(--sf-font-display);
-  letter-spacing: var(--sf-tracking-tight);
+  /* Condensed display faces (Oswald) degrade under negative tracking — keep 0. */
+  letter-spacing: 0;
   margin: 0;
 }
 
@@ -54,6 +55,10 @@ code {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sf-space-2);
   font-family: var(--sf-font-body);
   font-size: var(--sf-text-sm);
   font-weight: var(--sf-weight-semibold);
@@ -77,12 +82,12 @@ code {
 }
 
 .btn--primary {
-  background: var(--sf-color-blue-600);
+  background: var(--sf-color-ember-600);
   color: var(--sf-text-inverse);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: var(--sf-color-blue-700);
+  background: var(--sf-color-ember-700);
 }
 
 .btn--ghost {
@@ -116,6 +121,11 @@ code {
   color: var(--sf-text-secondary);
 }
 
+/* Error states render a message + a Retry button. */
+.state__message {
+  margin: 0 0 var(--sf-space-4);
+}
+
 .state--fullscreen {
   display: grid;
   place-items: center;
@@ -125,6 +135,121 @@ code {
 .section-title {
   font-size: var(--sf-text-2xl);
   margin-bottom: var(--sf-space-6);
+}
+
+/* Headings receive programmatic focus (tabIndex -1) on view switches — they
+ * are not interactive, so suppress the focus outline on them. */
+.section-title:focus,
+.course-detail__title:focus {
+  outline: none;
+}
+
+/* ── Skeletons (loading placeholders) ─────────────────────────────────── */
+
+/* Static base — this block IS the prefers-reduced-motion fallback: without
+ * the media query below, a skeleton is a plain still tint. */
+.skeleton {
+  display: block;
+  border-radius: var(--sf-radius-sm);
+  background: var(--sf-border-subtle);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    background: linear-gradient(
+      100deg,
+      var(--sf-border-subtle) 35%,
+      var(--sf-border-default) 50%,
+      var(--sf-border-subtle) 65%
+    );
+    background-size: 250% 100%;
+    animation: sf-shimmer 1.6s var(--sf-ease-in-out) infinite;
+  }
+
+  @keyframes sf-shimmer {
+    from {
+      background-position: 125% 0;
+    }
+    to {
+      background-position: -125% 0;
+    }
+  }
+}
+
+.skeleton--pill {
+  width: 4.5rem;
+  height: 1.125rem;
+  border-radius: var(--sf-radius-full);
+}
+
+.skeleton--title {
+  width: 70%;
+  height: 1.25rem;
+}
+
+.skeleton--text {
+  width: 100%;
+  height: 0.875rem;
+}
+
+.skeleton--short {
+  width: 55%;
+}
+
+.skeleton--h1 {
+  width: 40%;
+  height: 2.25rem;
+}
+
+.skeleton--frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--sf-radius-lg);
+}
+
+.skeleton--row {
+  width: 100%;
+  height: 2.75rem;
+  border-radius: var(--sf-radius-md);
+}
+
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-3);
+}
+
+.course-card--skeleton {
+  pointer-events: none;
+}
+
+/* ── Reduced motion (global kill switch) ──────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Button spinner (submit-in-flight) ────────────────────────────────── */
+
+.btn__spinner {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: var(--sf-radius-full);
+  animation: sf-spin 0.7s linear infinite;
+}
+
+@keyframes sf-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Brand wordmark ───────────────────────────────────────────────────── */
@@ -146,7 +271,7 @@ code {
 
 .signin__brand-forge,
 .app-header__forge {
-  color: var(--sf-color-orange-500);
+  color: var(--sf-color-ember-500);
 }
 
 /* ── Sign-in ──────────────────────────────────────────────────────────── */
@@ -160,7 +285,6 @@ code {
 
 .signin__card {
   width: 100%;
-  max-width: var(--sf-container-sm);
   max-width: 24rem;
   padding: var(--sf-space-8);
   display: flex;
@@ -208,6 +332,62 @@ code {
   box-shadow: var(--sf-focus-ring);
 }
 
+.field__input--error {
+  border-color: var(--sf-color-danger);
+}
+
+.field__input--error:focus-visible {
+  border-color: var(--sf-color-danger);
+  box-shadow: var(--sf-focus-ring-error);
+}
+
+.field__error {
+  margin: 0;
+  color: var(--sf-color-danger);
+  font-size: var(--sf-text-xs);
+}
+
+/* Input wrapper hosting an inline control (e.g. the Show/Hide toggle). */
+.field__control {
+  position: relative;
+}
+
+.field__control .field__input {
+  width: 100%;
+  padding-right: 4.25rem; /* room for the Show/Hide toggle */
+}
+
+.field__toggle {
+  position: absolute;
+  top: 50%;
+  right: var(--sf-space-2);
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--sf-text-secondary);
+  font-family: var(--sf-font-body);
+  font-size: var(--sf-text-xs);
+  font-weight: var(--sf-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+  padding: var(--sf-space-1) var(--sf-space-2);
+  border-radius: var(--sf-radius-sm);
+  cursor: pointer;
+}
+
+.field__toggle:hover {
+  color: var(--sf-text-primary);
+}
+
+.field__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}
+
+.field__toggle[aria-pressed='true'] {
+  color: var(--sf-text-link);
+}
+
 /* ── Backend-not-configured banner ────────────────────────────────────── */
 
 .banner-screen {
@@ -220,7 +400,7 @@ code {
 .banner {
   max-width: var(--sf-container-md);
   padding: var(--sf-space-8);
-  border-left: 4px solid var(--sf-color-orange-500);
+  border-left: 4px solid var(--sf-color-ember-500);
 }
 
 .banner__title {
@@ -261,9 +441,64 @@ code {
   gap: var(--sf-space-3);
 }
 
+.app-header__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sf-space-2);
+  min-width: 0;
+}
+
 .app-header__user {
   color: var(--sf-text-secondary);
   font-size: var(--sf-text-sm);
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  border-radius: var(--sf-radius-full);
+  background: var(--sf-color-ember-100);
+  color: var(--sf-color-ember-700);
+  font-size: var(--sf-text-2xs);
+  font-weight: var(--sf-weight-bold);
+  letter-spacing: var(--sf-tracking-wide);
+}
+
+.theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: var(--sf-touch-target);
+  height: var(--sf-touch-target);
+  padding: 0;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+  background: transparent;
+  color: var(--sf-text-secondary);
+  cursor: pointer;
+  transition: background var(--sf-dur-base) var(--sf-ease-out),
+    color var(--sf-dur-base) var(--sf-ease-out);
+}
+
+.theme-toggle:hover {
+  background: var(--sf-bg-subtle);
+  color: var(--sf-text-primary);
+}
+
+.theme-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}
+
+.theme-toggle svg {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 
 .app-main {
@@ -272,6 +507,26 @@ code {
   max-width: var(--sf-container-xl);
   margin: 0 auto;
   padding: var(--sf-space-8) var(--sf-space-6);
+}
+
+/* Narrow viewports: tighter header spacing, harder identity truncation. */
+@media (max-width: 640px) {
+  .app-header {
+    padding: var(--sf-space-2) var(--sf-space-3);
+    gap: var(--sf-space-2);
+  }
+
+  .app-header__right {
+    gap: var(--sf-space-2);
+  }
+
+  .app-header__user {
+    max-width: 7rem;
+  }
+
+  .app-main {
+    padding: var(--sf-space-6) var(--sf-space-4);
+  }
 }
 
 /* ── Course list ──────────────────────────────────────────────────────── */
@@ -310,6 +565,11 @@ code {
 }
 
 .course-card__status {
+  align-self: flex-start;
+  padding: 0.125rem var(--sf-space-2);
+  border: 1px solid var(--sf-border-subtle);
+  border-radius: var(--sf-radius-full);
+  background: var(--sf-bg-subtle);
   font-size: var(--sf-text-2xs);
   font-weight: var(--sf-weight-semibold);
   text-transform: uppercase;
@@ -319,6 +579,15 @@ code {
 
 .course-card__status[data-status='published'] {
   color: var(--sf-status-complete);
+}
+
+.course-card__status[data-status='draft'] {
+  color: var(--sf-color-spark-700);
+}
+
+.course-card__status[data-status='archived'] {
+  color: var(--sf-text-muted);
+  border-style: dashed;
 }
 
 .course-card__title {
@@ -333,8 +602,22 @@ code {
 
 .course-card__meta {
   margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sf-space-2);
   font-size: var(--sf-text-xs);
   color: var(--sf-text-muted);
+}
+
+.course-card__meta > * + *::before {
+  content: '·';
+  margin-right: var(--sf-space-2);
+}
+
+.course-card__duration,
+.lesson-item__duration {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Course detail ────────────────────────────────────────────────────── */
@@ -395,7 +678,7 @@ code {
   text-transform: uppercase;
   letter-spacing: var(--sf-tracking-caps);
   font-size: var(--sf-text-xs);
-  color: var(--sf-color-blue-300);
+  color: var(--sf-color-spark-300);
   margin-bottom: var(--sf-space-2);
 }
 
@@ -488,7 +771,7 @@ code {
 }
 
 .lesson-item[data-active='true'] {
-  background: var(--sf-color-blue-50);
+  background: var(--sf-color-ember-50);
   border-color: var(--sf-border-focus);
   font-weight: var(--sf-weight-semibold);
 }
@@ -506,10 +789,34 @@ code {
 }
 
 .lesson-item__kind[data-kind='video'] {
-  background: var(--sf-color-blue-100);
-  color: var(--sf-color-blue-700);
+  background: var(--sf-color-ember-100);
+  color: var(--sf-color-ember-700);
 }
 
 .lesson-item__title {
   flex: 1;
+  min-width: 0;
+}
+
+.lesson-item__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sf-space-2);
+  flex: 0 0 auto;
+  font-size: var(--sf-text-2xs);
+  color: var(--sf-text-muted);
+}
+
+.lesson-item__required {
+  font-weight: var(--sf-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+  color: var(--sf-text-link);
+}
+
+/* Inline lesson-kind glyphs (stroke = currentColor; sized to the kind chip). */
+.kind-icon {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
 }

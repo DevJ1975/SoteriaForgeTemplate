@@ -36,7 +36,12 @@ export function Avatar({ source, name, size = 44, status, badgeCount, ringColor,
   };
 
   return (
-    <View style={[{ width: size, height: size }, style]}>
+    <View
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={name ? `Avatar for ${name}` : initials ? `Avatar ${initials}` : 'Avatar'}
+      style={[{ width: size, height: size }, style]}
+    >
       {source ? (
         <Image source={typeof source === 'string' ? { uri: source } : source} style={{ width: size, height: size, borderRadius: size / 2 }} />
       ) : (
