@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type Ref } from 'vue'
 import { Album, AlertTriangle, Award, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, Copy, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Play, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, Video, WandSparkles, X } from '@lucide/vue'
 import { normalizeTenantSlug, type CourseDTO, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
@@ -378,7 +378,9 @@ const newCourse = ref<CreateCourseInput & { tagsText: string }>({
 // The currently-open course editor (its tree), or null when just listing.
 const selectedCourse = ref<CourseRow | null>(null)
 const editorModules = ref<ModuleRow[]>([])
-const editorLessons = ref<LessonRow[]>([])
+// `as Ref<...>` (Vue's documented escape hatch) skips UnwrapRef recursion: the
+// row's recursive `Json` content column blows TS2589 under deep unwrapping.
+const editorLessons = ref([]) as Ref<LessonRow[]>
 
 // Add-module form (title only; sequence auto-derives from the current count).
 const newModuleTitle = ref('')

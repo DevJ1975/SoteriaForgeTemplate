@@ -17,7 +17,7 @@ src/
   services/api.ts        the data/service layer (repointed as the backend migrates)
   theme/                 tokens.css (--sf-* custom properties) + soteria-forge.css
   styles.css, assets/    global styles + assets
-vercel.json              SPA rewrite (all routes → /index.html)
+vercel.json              Vercel deploy config: scoped install + build (see below) + SPA rewrite
 ```
 
 ## Design tokens (ember/spark — mirrored, not canonical)
@@ -57,6 +57,18 @@ Express/Mongo and interim AWS/Amplify layers are retired. Keep `src/services/api
 stable when it is repointed or extended so views don't churn; prefer small typed adapters over
 sweeping rewrites. A green console after every change beats a clever refactor that redlines
 type-check.
+
+## Vercel deploy (config lives in `vercel.json`, not the dashboard)
+
+The Vercel project (root directory `apps/console`) builds from `vercel.json` so deploy behavior
+is repo-reviewed: the `installCommand` prunes the **ephemeral clone's** root `workspaces` list to
+`apps/console` + `packages/shared` before `npm install` — npm resolves the FULL workspace tree
+even under `--workspace` filtering, so without the prune any sibling workspace's bad dep (e.g. an
+unresolvable react-native spec in `apps/mobile`) breaks console deploys. The prune mutates only
+Vercel's throwaway clone, never the repo. `buildCommand` builds `@soteria-forge/shared` (its
+`dist/` declarations feed `vue-tsc`) then the console; `framework` is pinned to `vite` (Vercel
+misdetects react-router otherwise). CI's `verify-deps-resolve` job guards the whole-tree
+resolution class at PR time.
 
 ## Local workflow
 
