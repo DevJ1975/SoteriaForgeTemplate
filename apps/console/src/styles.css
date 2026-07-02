@@ -96,6 +96,14 @@ textarea {
   background: var(--sf-color-ember-50);
 }
 
+/* Not-yet-built destinations must LOOK inert, not silently swallow clicks. */
+.console-sidebar button:disabled {
+  cursor: not-allowed;
+  color: var(--sf-text-secondary);
+  background: transparent;
+  opacity: 0.45;
+}
+
 .console-workspace {
   padding: 30px;
 }
@@ -272,6 +280,29 @@ a:focus-visible {
 .console-login,
 .tenant-list {
   margin-bottom: 16px;
+}
+
+.login-error {
+  margin: 0;
+  border: 1px solid rgb(192 57 43 / 34%);
+  border-radius: var(--sf-radius-sm);
+  padding: 10px 12px;
+  color: var(--sf-color-danger);
+  background: rgb(192 57 43 / 8%);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.login-hint {
+  margin: 0;
+  color: var(--sf-text-secondary);
+  font-size: 0.8rem;
+}
+
+.login-hint code {
+  font-family: inherit;
+  font-weight: 800;
+  color: var(--sf-text-primary);
 }
 
 .module-list div {

@@ -19,9 +19,13 @@ const tenantName = ref('Acme Industrial Services')
 const tenantSlug = computed(() => normalizeTenantSlug(tenantName.value))
 const courseTitle = ref('Confined Space Entry Refresher')
 const sopSource = ref('Paste an SOP, toolbox talk, or safety bulletin here to draft modules, quiz checks, and sign-off steps.')
-const email = ref('superadmin@soteriaforge.local')
-const password = ref('SoteriaForgeDemo!2026')
+// Prefill the SEEDED demo super-admin (supabase/seed.sql + supabase/README.md).
+// These are the documented dev-only demo credentials, not a secret.
+const email = ref('super@soteria.test')
+const password = ref('SoteriaForge!2026')
 const tenantLoginSlug = ref('demo')
+const loginError = ref('')
+const signingIn = ref(false)
 const status = ref('Sign in to manage tenants and course drafts.')
 const isLoggedIn = ref(false)
 const tenants = ref<TenantDTO[]>([])
@@ -199,13 +203,31 @@ const coursePreview = computed<CourseDTO>(() => ({
 }))
 
 async function login() {
+  if (signingIn.value) return
+  loginError.value = ''
+  signingIn.value = true
   status.value = 'Signing in'
-  const session = await consoleApi.login(email.value, password.value, tenantLoginSlug.value)
-  currentUser.value = session.user
-  isLoggedIn.value = true
-  status.value = `Signed in as ${session.user.email}`
-  await loadTenants()
-  await loadInvitations()
+  try {
+    const session = await consoleApi.login(email.value, password.value, tenantLoginSlug.value)
+    currentUser.value = session.user
+    isLoggedIn.value = true
+    status.value = `Signed in as ${session.user.email}`
+  } catch (error) {
+    // A rejected sign-in must SURFACE, not vanish — a swallowed rejection here
+    // left the whole console looking dead (status stuck, every action disabled).
+    loginError.value = error instanceof Error ? error.message : 'Sign in failed'
+    status.value = 'Sign in failed'
+    return
+  } finally {
+    signingIn.value = false
+  }
+  try {
+    await loadTenants()
+    await loadInvitations()
+  } catch (error) {
+    // Signed in but a post-login load failed: report it without undoing auth.
+    status.value = error instanceof Error ? error.message : 'Unable to load workspace data'
+  }
 }
 
 async function loadTenants() {
@@ -950,16 +972,18 @@ onMounted(async () => {
       </div>
       <nav>
         <button :class="{ 'nav-active': activeView === 'dashboard' }" type="button" @click="goTo('dashboard')"><Building2 :size="18" /> Tenants</button>
-        <button type="button"><LibraryBig :size="18" /> Global Library</button>
-        <button type="button"><ShieldCheck :size="18" /> Packages</button>
-        <button type="button"><WandSparkles :size="18" /> Course Creator</button>
+        <button type="button" disabled title="Coming soon"><LibraryBig :size="18" /> Global Library</button>
+        <!-- Shortcuts into the dashboard panels where these workflows live (no
+             own view yet, so no nav-active highlight of their own). -->
+        <button type="button" @click="goTo('dashboard')"><ShieldCheck :size="18" /> Packages</button>
+        <button type="button" @click="goTo('dashboard')"><WandSparkles :size="18" /> Course Creator</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'courses' }" type="button" @click="goTo('courses')"><GraduationCap :size="18" /> Courses</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'roster' }" type="button" @click="goTo('roster')"><Users :size="18" /> Roster &amp; Enrollment</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'reports' }" type="button" @click="goTo('reports')"><BarChart3 :size="18" /> Reports</button>
         <button v-if="canManageContent" :class="{ 'nav-active': activeView === 'certificates' }" type="button" @click="goTo('certificates')"><Award :size="18" /> Certificates</button>
-        <button v-if="canProvisionTenant" type="button"><Rocket :size="18" /> Provision Tenant</button>
-        <button v-if="canInvite" type="button"><UserPlus :size="18" /> Invite Users</button>
-        <button type="button"><RadioTower :size="18" /> Sync Health</button>
+        <button v-if="canProvisionTenant" type="button" @click="goTo('dashboard')"><Rocket :size="18" /> Provision Tenant</button>
+        <button v-if="canInvite" type="button" @click="goTo('dashboard')"><UserPlus :size="18" /> Invite Users</button>
+        <button type="button" disabled title="Coming soon"><RadioTower :size="18" /> Sync Health</button>
       </nav>
     </aside>
 
@@ -980,17 +1004,24 @@ onMounted(async () => {
         <h2>Superadmin sign in</h2>
         <label>
           Email
-          <input v-model="email" type="email" />
+          <input v-model="email" type="email" autocomplete="username" @keyup.enter="login" />
         </label>
         <label>
           Password
-          <input v-model="password" type="password" />
+          <input v-model="password" type="password" autocomplete="current-password" @keyup.enter="login" />
         </label>
         <label>
           Login tenant
-          <input v-model="tenantLoginSlug" />
+          <input v-model="tenantLoginSlug" @keyup.enter="login" />
         </label>
-        <button class="primary-action" type="button" @click="login">Sign In</button>
+        <button class="primary-action" type="button" :disabled="signingIn" @click="login">
+          {{ signingIn ? 'Signing in…' : 'Sign In' }}
+        </button>
+        <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
+        <p class="login-hint">
+          Seeded demo accounts (password <code>SoteriaForge!2026</code>): <code>super@soteria.test</code>
+          (super-admin) · <code>admin@atl.test</code> (tenant-admin).
+        </p>
       </section>
 
       <template v-if="activeView === 'dashboard'">
