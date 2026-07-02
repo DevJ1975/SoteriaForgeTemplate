@@ -1,12 +1,14 @@
 # @soteria-forge/ui
 
 Soteria Forge's cross-platform React Native component library (iOS / Android / Web via
-`react-native-web`). This is the **mobile design language**: the ember/spark palette with
+`react-native-web`). This is the **brand design language**: the ember/spark palette with
 Oswald (display) + Barlow Semi Condensed (body). It is consumed as **source** by the app's
 Metro bundler — there is no `dist/` build step.
 
-> Scope: `apps/mobile` only. `apps/console` (Vue) stays on its own Ink/Bone/Cobalt tokens and
-> does **not** import this package.
+> Scope: ember/spark is **the** brand platform-wide (ADR-0009). `src/theme.ts` is the canonical
+> brand source; `apps/web/src/theme/tokens.css` and `apps/console/src/theme/tokens.css` mirror
+> its **values** as CSS custom properties. Only `apps/mobile` imports this package's components
+> (React Native primitives — wrong for the web apps).
 
 ## Install / consume
 
@@ -19,10 +21,16 @@ app via `expo-google-fonts` in `app/_layout.tsx`.
 ```tsx
 import {
   ThemeProvider, useTheme, lightTheme, darkTheme, elevation, palette,
-  ToastProvider, useToast,
-  Button, Card, TextField, /* …31 components… */
+  ToastProvider, useToast, useReducedMotion,
+  Button, Card, TextField, Skeleton, /* …32 components… */
+  HomeIcon, CoursesIcon, ShowcaseIcon, AwardIcon, SunIcon, MoonIcon,
 } from '@soteria-forge/ui';
 ```
+
+Loading states use `Skeleton` (`variant: 'line' | 'block' | 'circle'`) — it pulses via core
+`Animated` and renders static under OS reduced-motion. `useReducedMotion()` is exported for
+app-level animations; every kit animation (button press scale, progress fill, toast entrance,
+skeleton pulse) already honors it.
 
 ## Theme API (flat)
 

@@ -6,67 +6,67 @@
 
 :root {
   /* ── Brand ──────────────────────────────────────────────────────────── */
-  --sf-color-ink:        #0E1A2E;        /* primary / foreground */
-  --sf-color-blue:       #3DA9FC;       /* system signal */
-  --sf-color-orange:     #FF6B1F;     /* live / industrial signal */
-  --sf-color-paper:      #F5F4EF;      /* primary background */
+  --sf-color-ink:        #1A1D22;        /* primary / foreground */
+  --sf-color-ember:      #E8551F;       /* brand primary */
+  --sf-color-spark:      #FFB552;     /* accent */
+  --sf-color-paper:      #F1EEE8;      /* primary background */
 
-  /* Brand scale (blues + oranges for hover/active states) */
-  --sf-color-blue-50:    #EFF7FF;
-  --sf-color-blue-100:   #D4ECFE;
-  --sf-color-blue-200:   #ABDAFD;
-  --sf-color-blue-300:   #7DC6FC;
-  --sf-color-blue-400:   #5BB6FC;
-  --sf-color-blue-500:   #3DA9FC;
-  --sf-color-blue-600:   #2563EB;
-  --sf-color-blue-700:   #1D4ED8;
-  --sf-color-blue-800:   #1E40AF;
-  --sf-color-blue-900:   #1E3A8A;
+  /* Brand scale (embers + sparks for hover/active states) */
+  --sf-color-ember-50:   #FDF1EA;
+  --sf-color-ember-100:  #FBE0D1;
+  --sf-color-ember-200:  #F7C2A6;
+  --sf-color-ember-300:  #F49B72;
+  --sf-color-ember-400:  #FF7A3D;
+  --sf-color-ember-500:  #E8551F;
+  --sf-color-ember-600:  #D8451A;
+  --sf-color-ember-700:  #B03713;
+  --sf-color-ember-800:  #872B10;
+  --sf-color-ember-900:  #66210D;
 
-  --sf-color-orange-50:  #FFF4ED;
-  --sf-color-orange-100: #FFE3D1;
-  --sf-color-orange-200: #FEC9A6;
-  --sf-color-orange-300: #FDA572;
-  --sf-color-orange-400: #FB8843;
-  --sf-color-orange-500: #FF6B1F;
-  --sf-color-orange-600: #F97316;
-  --sf-color-orange-700: #C2410C;
-  --sf-color-orange-800: #9A3412;
-  --sf-color-orange-900: #7C2D12;
+  --sf-color-spark-50:   #FFF7EA;
+  --sf-color-spark-100:  #FFECD0;
+  --sf-color-spark-200:  #FFDFAD;
+  --sf-color-spark-300:  #FFD08C;
+  --sf-color-spark-400:  #FFC26E;
+  --sf-color-spark-500:  #FFB552;
+  --sf-color-spark-600:  #F49C29;
+  --sf-color-spark-700:  #C97C15;
+  --sf-color-spark-800:  #9C5F10;
+  --sf-color-spark-900:  #78490D;
 
-  /* Ink scale (warm-cool neutral) */
-  --sf-color-ink-50:     #FAFAF7;
-  --sf-color-ink-100:    #EFECE7;
-  --sf-color-ink-200:    #D8D4CC;
-  --sf-color-ink-300:    #A8A39B;
-  --sf-color-ink-400:    #7A7670;
-  --sf-color-ink-500:    #5A5650;
-  --sf-color-ink-600:    #3A3F4A;
-  --sf-color-ink-700:    #2A2F3A;
-  --sf-color-ink-800:    #0E1A2E;
-  --sf-color-ink-900:    #0A1119;
+  /* Ink scale (warm-ink neutral) */
+  --sf-color-ink-50:     #FAF9F5;
+  --sf-color-ink-100:    #F1EEE8;
+  --sf-color-ink-200:    #E4DFD6;
+  --sf-color-ink-300:    #B9B3A6;
+  --sf-color-ink-400:    #8A8579;
+  --sf-color-ink-500:    #5A5F66;
+  --sf-color-ink-600:    #3A4048;
+  --sf-color-ink-700:    #22262C;
+  --sf-color-ink-800:    #1A1D22;
+  --sf-color-ink-900:    #16181D;
 
   /* ── Semantic ───────────────────────────────────────────────────────── */
-  --sf-color-success:    #2F6F4A;
-  --sf-color-warning:    #E0A03B;
-  --sf-color-danger:     #C84D2F;
-  --sf-color-info:       #3DA9FC;
+  --sf-color-success:    #1F8A5B;
+  --sf-color-warning:    #E8A317;   /* background / badge fill ONLY — always ink text */
+  --sf-color-danger:     #C0392B;
+  --sf-color-info:       #2A6FDB;
 
   /* LMS-specific status */
-  --sf-status-ready:     #3DA9FC;
-  --sf-status-progress:  #FF6B1F;
-  --sf-status-complete:  #2F6F4A;
-  --sf-status-lapsing:   #E0A03B;
-  --sf-status-expired:   #C84D2F;
-  --sf-status-overdue:   #C84D2F;
-  --sf-status-synced:    #2F6F4A;
-  --sf-status-offline:   #7A7670;
+  --sf-status-ready:     #2A6FDB;
+  --sf-status-progress:  #E8551F;
+  --sf-status-complete:  #1F8A5B;
+  --sf-status-lapsing:   #E8A317;
+  --sf-status-expired:   #C0392B;
+  --sf-status-overdue:   #C0392B;
+  --sf-status-synced:    #1F8A5B;
+  --sf-status-offline:   #8A8579;
 
   /* Backgrounds */
   --sf-bg-base:          var(--sf-color-paper);
   --sf-bg-surface:       #FFFFFF;
   --sf-bg-elevated:      #FFFFFF;
-  --sf-bg-overlay:       rgba(14, 26, 46, 0.55);
+  --sf-bg-overlay:       rgba(20, 20, 24, 0.5);
   --sf-bg-subtle:        var(--sf-color-ink-50);
 
   /* Text */
@@ -74,29 +74,29 @@
   --sf-text-secondary:   var(--sf-color-ink-500);
   --sf-text-muted:       var(--sf-color-ink-400);
   --sf-text-inverse:     #FFFFFF;
-  --sf-text-link:        var(--sf-color-blue-600);
+  --sf-text-link:        var(--sf-color-ember-700);
 
   /* Borders */
-  --sf-border-subtle:    rgba(14, 26, 46, 0.07);
-  --sf-border-default:   rgba(14, 26, 46, 0.14);
-  --sf-border-strong:    rgba(14, 26, 46, 0.28);
-  --sf-border-focus:     var(--sf-color-blue-500);
+  --sf-border-subtle:    rgba(26, 29, 34, 0.07);
+  --sf-border-default:   rgba(26, 29, 34, 0.14);
+  --sf-border-strong:    rgba(26, 29, 34, 0.28);
+  --sf-border-focus:     var(--sf-color-ember-500);
 
   /* Focus ring (WCAG-aware) */
-  --sf-focus-ring:       0 0 0 3px rgba(61, 169, 252, 0.45);
-  --sf-focus-ring-error: 0 0 0 3px rgba(200, 77, 47, 0.45);
+  --sf-focus-ring:       0 0 0 3px rgba(232, 85, 31, 0.40);
+  --sf-focus-ring-error: 0 0 0 3px rgba(192, 57, 43, 0.45);
 
-  /* Charts (LMS-friendly — start with blues and ramp through orange/green) */
-  --sf-chart-1: #3DA9FC;
-  --sf-chart-2: #FF6B1F;
-  --sf-chart-3: #2F6F4A;
-  --sf-chart-4: #7DC6FC;
-  --sf-chart-5: #C2410C;
-  --sf-chart-6: #6B7280;
+  /* Charts (LMS-friendly — lead with ember, ramp through blue/green/spark) */
+  --sf-chart-1: #E8551F;
+  --sf-chart-2: #2A6FDB;
+  --sf-chart-3: #1F8A5B;
+  --sf-chart-4: #FFB552;
+  --sf-chart-5: #B03713;
+  --sf-chart-6: #5A5F66;
 
   /* ── Typography ─────────────────────────────────────────────────────── */
-  --sf-font-display: 'Inter Tight', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --sf-font-body:    'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --sf-font-display: 'Oswald', system-ui, sans-serif;
+  --sf-font-body:    'Barlow Semi Condensed', system-ui, sans-serif;
   --sf-font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Type scale (rem-based — assumes 16px root) */
@@ -157,11 +157,11 @@
   --sf-radius-full: 9999px;
 
   /* ── Shadows ────────────────────────────────────────────────────────── */
-  --sf-shadow-xs:  0 1px 2px rgba(14, 26, 46, 0.06);
-  --sf-shadow-sm:  0 1px 3px rgba(14, 26, 46, 0.08), 0 1px 2px rgba(14, 26, 46, 0.05);
-  --sf-shadow-md:  0 4px 12px rgba(14, 26, 46, 0.10), 0 2px 4px rgba(14, 26, 46, 0.06);
-  --sf-shadow-lg:  0 12px 32px rgba(14, 26, 46, 0.14), 0 4px 8px rgba(14, 26, 46, 0.06);
-  --sf-shadow-xl:  0 24px 60px -10px rgba(14, 26, 46, 0.28);
+  --sf-shadow-xs:  0 1px 2px rgba(26, 29, 34, 0.06);
+  --sf-shadow-sm:  0 1px 3px rgba(26, 29, 34, 0.08), 0 1px 2px rgba(26, 29, 34, 0.05);
+  --sf-shadow-md:  0 4px 12px rgba(26, 29, 34, 0.10), 0 2px 4px rgba(26, 29, 34, 0.06);
+  --sf-shadow-lg:  0 12px 32px rgba(26, 29, 34, 0.14), 0 4px 8px rgba(26, 29, 34, 0.06);
+  --sf-shadow-xl:  0 24px 60px -10px rgba(26, 29, 34, 0.28);
 
   /* ── Motion ─────────────────────────────────────────────────────────── */
   --sf-ease-out:   cubic-bezier(0.2, 0.7, 0.3, 1);
@@ -180,35 +180,40 @@
 
 /* ── Dark mode ──────────────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --sf-bg-base:          var(--sf-color-ink-900);
-  --sf-bg-surface:       var(--sf-color-ink-800);
-  --sf-bg-elevated:      var(--sf-color-ink-700);
+  --sf-bg-base:          #16181D;
+  --sf-bg-surface:       #1E2127;
+  --sf-bg-elevated:      #22262C;
   --sf-bg-overlay:       rgba(0, 0, 0, 0.65);
   --sf-bg-subtle:        rgba(255, 255, 255, 0.04);
 
-  --sf-text-primary:     #F5F4EF;
-  --sf-text-secondary:   rgba(245, 244, 239, 0.72);
-  --sf-text-muted:       rgba(245, 244, 239, 0.45);
-  --sf-text-link:        var(--sf-color-blue-400);
+  --sf-text-primary:     #F4F2EE;
+  --sf-text-secondary:   #AEB4BC;
+  --sf-text-muted:       rgba(244, 242, 238, 0.5);
+  --sf-text-link:        var(--sf-color-ember-400);
 
   --sf-border-subtle:    rgba(255, 255, 255, 0.06);
   --sf-border-default:   rgba(255, 255, 255, 0.12);
   --sf-border-strong:    rgba(255, 255, 255, 0.24);
+  --sf-border-focus:     var(--sf-color-ember-400);
+
+  --sf-focus-ring:       0 0 0 3px rgba(255, 122, 61, 0.5);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --sf-bg-base:          var(--sf-color-ink-900);
-    --sf-bg-surface:       var(--sf-color-ink-800);
-    --sf-bg-elevated:      var(--sf-color-ink-700);
+    --sf-bg-base:          #16181D;
+    --sf-bg-surface:       #1E2127;
+    --sf-bg-elevated:      #22262C;
     --sf-bg-overlay:       rgba(0, 0, 0, 0.65);
     --sf-bg-subtle:        rgba(255, 255, 255, 0.04);
-    --sf-text-primary:     #F5F4EF;
-    --sf-text-secondary:   rgba(245, 244, 239, 0.72);
-    --sf-text-muted:       rgba(245, 244, 239, 0.45);
-    --sf-text-link:        var(--sf-color-blue-400);
+    --sf-text-primary:     #F4F2EE;
+    --sf-text-secondary:   #AEB4BC;
+    --sf-text-muted:       rgba(244, 242, 238, 0.5);
+    --sf-text-link:        var(--sf-color-ember-400);
     --sf-border-subtle:    rgba(255, 255, 255, 0.06);
     --sf-border-default:   rgba(255, 255, 255, 0.12);
     --sf-border-strong:    rgba(255, 255, 255, 0.24);
+    --sf-border-focus:     var(--sf-color-ember-400);
+    --sf-focus-ring:       0 0 0 3px rgba(255, 122, 61, 0.5);
   }
 }

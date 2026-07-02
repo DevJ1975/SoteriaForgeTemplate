@@ -18,24 +18,31 @@ neither can import that package).
 ## Layout
 
 ```
-index.html               Vite entry (Inter font <link>s, #root, /src/main.tsx)
+index.html               Vite entry (Google Fonts <link>s: Oswald + Barlow Semi Condensed, #root, /src/main.tsx)
 vite.config.ts           @vitejs/plugin-react; dev on :5182, preview on :4182 (host 0.0.0.0)
 tsconfig.json            React (jsx react-jsx), strict, noEmit, moduleResolution Bundler
 vercel.json              SPA rewrite (all routes → /index.html)
 src/
   main.tsx               createRoot(...).render(<App/>) + imports theme/tokens.css, styles.css
-  App.tsx                shell: config banner / SignIn / (header + CourseList↔CourseDetail)
+  App.tsx                shell: config banner / SignIn / (header: theme toggle + avatar chip +
+                         sign-out) + CourseList↔CourseDetail, with History-API URL sync
   supabase.ts            typed createClient<Database>; isSupabaseConfigured (never throws at import)
   auth.tsx               AuthProvider + useAuth (tenantId + role from the caller's profile)
   api.ts                 RLS-scoped data layer (listCourses / getCourseTree) — the ONLY backend path
   components/            StreamWebPlayer (Cloudflare Stream via stream-signed-url edge function)
   screens/               SignIn, CourseList, CourseDetail
-  theme/tokens.css       --sf-* design tokens (1:1 verbatim mirror of apps/console + packages/ui)
+  theme/theme.ts         sf-theme preference module (getStoredTheme / applyTheme / setTheme)
+  theme/tokens.css       --sf-* design tokens (VALUE-identical mirror of apps/console; canonical
+                         brand source is packages/ui/src/theme.ts)
   styles.css             app/component styles — references ONLY --sf-* tokens
   vite-env.d.ts          Vite client types
 ```
 
-Routing is intentionally **state-based** (no react-router) to keep the dependency surface minimal.
+Routing is **state-driven WITH History-API URL sync** (still no react-router, to keep the
+dependency surface minimal): the open course is mirrored to `/courses/:id` via `pushState`, and a
+`popstate` listener re-syncs state on browser back/forward. The URL carries **resource ids only**
+— Postgres RLS gates every read server-side, so an unknown or foreign id simply renders the
+not-found state. No tenant material ever appears in (or is read from) the URL.
 
 ## Tenant isolation (the #1 rule) — enforced by Postgres RLS
 
@@ -66,11 +73,23 @@ configured" state (mirrors the mobile app's pattern).
 
 ## Design tokens
 
-All colour/space/type come from `src/theme/tokens.css` (`--sf-*` custom properties), a **1:1
-verbatim mirror** of `apps/console/src/theme/tokens.css` and `packages/ui`. Ink/Bone/Cobalt: ink
-`#0E1A2E`, blue `#3DA9FC`, orange `#FF6B1F`, paper `#F5F4EF`. **Never hardcode a brand hex** in a
-component or stylesheet — reference the `--sf-*` vars. If the token scale changes, the console and
-`packages/ui` move with it.
+All colour/space/type come from `src/theme/tokens.css` (`--sf-*` custom properties). The brand is
+**ember/spark** (warm industrial): the **canonical scale lives in `packages/ui/src/theme.ts`**,
+and this file mirrors `apps/console/src/theme/tokens.css` with **byte-identical VALUES**.
+Components reference semantic tokens (`--sf-text-*`, `--sf-bg-*`, `--sf-border-*`,
+`--sf-status-*`, `--sf-focus-ring*`) or ramp steps (`--sf-color-ember-*`, `--sf-color-spark-*`,
+`--sf-color-ink-*`) — **never hardcode a brand hex** in a component or stylesheet (inline SVG
+glyphs use `currentColor`). If the scale changes, `packages/ui` moves first and the console + web
+mirrors move with it.
+
+## Theme (`sf-theme` contract)
+
+`src/theme/theme.ts` owns the theme preference: the localStorage key **`sf-theme`** holds
+`'light' | 'dark' | 'system'` (default `'system'`, try/catch-safe when storage is unavailable).
+The preference is applied as a `data-theme` attribute on `document.documentElement` — `"light"` /
+`"dark"` explicitly; for `'system'` the attribute is **ABSENT** so the `prefers-color-scheme`
+block in `tokens.css` decides. The header toggle in `App.tsx` cycles light → dark → system, and
+the stored preference is applied on startup.
 
 ## Shared contract
 

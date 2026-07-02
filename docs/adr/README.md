@@ -24,6 +24,7 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
 | [0006](./0006-adopt-soteria-forge-ui-kit.md) | Adopt the Soteria Forge UI kit as `packages/ui` (mobile) | Accepted |
 | [0007](./0007-supabase-backend.md) | Supabase (Postgres + RLS + Auth + Storage) replaces AWS/Amplify | Accepted |
 | [0008](./0008-certificates-and-video.md) | Auto-issued immutable certificates; Cloudflare Stream signed playback | Accepted |
+| [0009](./0009-unify-brand-ember-spark.md) | Unify the product brand on ember/spark (resolves 0006's open divergence) | Accepted |
 
 ## How these relate
 
@@ -52,9 +53,12 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
   a short-lived Cloudflare Stream signed URL and degrades to `501` before Cloudflare
   is configured.
 - **0006** makes `packages/ui` a real cross-platform RN component kit for
-  `apps/mobile`. Note the **open brand divergence** it records: mobile is now
-  ember/spark while `apps/console` + the root `CLAUDE.md` stay Ink/Bone/Cobalt —
-  an owner decision (rebrand console, or re-skin the kit) left unresolved.
+  `apps/mobile`. The **open brand divergence** it recorded (mobile ember/spark
+  vs console/root Ink/Bone/Cobalt) is now **resolved by 0009**.
+- **0009** settles **0006**'s open brand decision: **ember/spark is the one
+  Soteria Forge brand**. `packages/ui/src/theme.ts` is the canonical token
+  source; `apps/web` + `apps/console` `tokens.css` mirror its values and stay
+  byte-identical to each other.
 
 ## Status values
 

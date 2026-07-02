@@ -457,8 +457,8 @@ function tenantRowToDTO(row: TenantRow): TenantDTO {
     branding: {
       appName: typeof branding.appName === 'string' ? branding.appName : row.name,
       logoUrl: typeof branding.logoUrl === 'string' ? branding.logoUrl : undefined,
-      primaryColor: typeof branding.primaryColor === 'string' ? branding.primaryColor : '#3DA9FC',
-      accentColor: typeof branding.accentColor === 'string' ? branding.accentColor : '#FF6B1F',
+      primaryColor: typeof branding.primaryColor === 'string' ? branding.primaryColor : '#E8551F',
+      accentColor: typeof branding.accentColor === 'string' ? branding.accentColor : '#FFB552',
     },
     settings: {
       offlineEnabled: settings.offlineEnabled !== false,

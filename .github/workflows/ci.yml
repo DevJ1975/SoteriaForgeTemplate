@@ -22,6 +22,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every workspace's dependency SPECS must resolve against the registry —
+  # resolution only (--package-lock-only writes an ephemeral lockfile in the
+  # runner; nothing is installed, nothing is committed), so the repo stays
+  # defined-as-code. Guards the failure class that broke the console's Vercel
+  # deploy (react-native-video@^7.0.0: a specifier no published version
+  # satisfies — ETARGET at deploy time, invisible to a type-check-only CI).
+  verify-deps-resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: all workspace dependency specs resolve
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
   verify-foundation:
     runs-on: ubuntu-latest
     steps:

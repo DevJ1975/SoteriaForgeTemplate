@@ -17,8 +17,9 @@
  * the verified session (via the hook's `useAuth`), never from route input. No
  * hardcoded brand hex — every color is a `@soteria-forge/ui` token.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Accordion,
@@ -28,6 +29,7 @@ import {
   Chip,
   Divider,
   ProgressBar,
+  Skeleton,
   useTheme,
 } from '@soteria-forge/ui';
 import { CertificateView, Screen } from '../components';
@@ -72,6 +74,18 @@ export function CourseDetailScreen() {
   const { certificate, refetch: refetchCertificate } = useCertificate(id);
   const [certOpen, setCertOpen] = useState(false);
 
+  // Pull-to-refresh keeps the loaded tree on screen (the skeleton state below
+  // is only for the initial load); the spinner clears when loading settles.
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    if (!loading) setRefreshing(false);
+  }, [loading]);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refetch();
+    refetchCertificate();
+  }, [refetch, refetchCertificate]);
+
   // Re-read the tree (and thus the LOCAL completed-lesson set) whenever this
   // screen regains focus — so returning from the lesson player, where a
   // completion was just enqueued, advances the progress bar without a manual
@@ -90,20 +104,30 @@ export function CourseDetailScreen() {
     router.push({ pathname: '/(app)/lesson/[id]', params: { id: lessonId } });
   };
 
-  if (loading) {
+  if (loading && !refreshing) {
+    // Skeletons shaped like the loaded layout: header card + accordion rows.
     return (
-      <Screen scroll={false} contentStyle={styles.center}>
-        <ProgressBar value={0.4} style={{ width: 160 }} />
-        <Text
-          style={{
-            color: theme.colors.textMuted,
-            fontFamily: theme.fonts.body,
-            fontSize: 14,
-            marginTop: 12,
-          }}
-        >
-          Loading course…
-        </Text>
+      <Screen scroll={false}>
+        <Card raised>
+          <View style={styles.headerTop}>
+            <Skeleton variant="line" height={20} width={92} radius="pill" />
+            <Skeleton variant="line" height={14} width={48} />
+          </View>
+          <Skeleton variant="line" height={22} width="78%" style={{ marginTop: 14 }} />
+          <Skeleton variant="line" width="94%" style={{ marginTop: 12 }} />
+          <Skeleton variant="line" width="66%" style={{ marginTop: 8 }} />
+          <Skeleton variant="block" height={10} radius="pill" style={{ marginTop: 20 }} />
+          <Skeleton variant="line" width={140} style={{ marginTop: 10 }} />
+        </Card>
+        <Card>
+          <Skeleton variant="line" height={16} width="56%" />
+        </Card>
+        <Card>
+          <Skeleton variant="line" height={16} width="48%" />
+        </Card>
+        <Card>
+          <Skeleton variant="line" height={16} width="52%" />
+        </Card>
       </Screen>
     );
   }
@@ -142,7 +166,7 @@ export function CourseDetailScreen() {
   const completedCount = tree.lessons.filter((l) => l.completed).length;
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       {/* Header card */}
       <Card raised>
         <View style={styles.headerTop}>
@@ -337,9 +361,12 @@ function CertificateModalBody({
   onClose: () => void;
 }) {
   const theme = useTheme();
+  // The modal is full-screen (outside Screen's SafeAreaView), so pad the top
+  // bar below the real notch/status-bar inset instead of a magic constant.
+  const insets = useSafeAreaInsets();
   return (
     <View style={[styles.modalRoot, { backgroundColor: theme.colors.bg }]}>
-      <View style={styles.modalBar}>
+      <View style={[styles.modalBar, { paddingTop: insets.top + theme.spacing.md }]}>
         <Text
           style={{
             color: theme.colors.text,
@@ -470,7 +497,6 @@ function Notice({
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18 },
   lessonList: { gap: 10 },
@@ -493,7 +519,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 56,
+    // paddingTop comes from the live safe-area inset at the call site.
     paddingBottom: 16,
   },
   modalContent: { padding: 16, paddingBottom: 48 },

@@ -1,4 +1,9 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd ../.. && npm pkg delete workspaces && npm pkg set 'workspaces[]=apps/console' 'workspaces[]=packages/shared' && npm install --no-audit --no-fund",
+  "buildCommand": "cd ../.. && npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/console",
+  "outputDirectory": "dist",
   "rewrites": [
     {
       "source": "/(.*)",

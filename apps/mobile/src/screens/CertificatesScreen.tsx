@@ -10,10 +10,10 @@
  *
  * Colour/type come from `useTheme()` tokens; no hardcoded brand hex.
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Badge, Button, Card, Divider, ProgressBar, useTheme } from '@soteria-forge/ui';
+import { Badge, BadgeGlyph, Button, Card, Divider, Skeleton, useTheme } from '@soteria-forge/ui';
 import { CertificateView, Screen } from '../components';
 import { useAuth } from '../auth';
 import { useCertificates } from '../api';
@@ -31,24 +31,39 @@ export function CertificatesScreen() {
     }, [refetch]),
   );
 
+  // Pull-to-refresh keeps the loaded list on screen (the skeleton state below
+  // is only for the initial load); the spinner clears when loading settles.
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    if (!loading) setRefreshing(false);
+  }, [loading]);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refetch();
+  }, [refetch]);
+
   const recipientName = user
     ? user.displayName ?? user.email ?? user.username
     : 'Recipient';
 
-  if (loading) {
+  if (loading && !refreshing) {
+    // Skeletons shaped like the loaded layout: title row + certificate blocks.
     return (
-      <Screen scroll={false} contentStyle={styles.center}>
-        <ProgressBar value={0.4} style={{ width: 160 }} />
-        <Text
-          style={{
-            color: theme.colors.textMuted,
-            fontFamily: theme.fonts.body,
-            fontSize: 14,
-            marginTop: 12,
-          }}
-        >
-          Loading certificates…
-        </Text>
+      <Screen scroll={false}>
+        <View style={styles.header}>
+          <Skeleton variant="line" height={24} width={180} />
+          <Skeleton variant="line" height={20} width={36} radius="pill" />
+        </View>
+        <View style={{ gap: 18 }}>
+          <View style={styles.certBlock}>
+            <Skeleton variant="line" height={16} width="64%" />
+            <Skeleton variant="block" height={220} radius="lg" />
+          </View>
+          <View style={styles.certBlock}>
+            <Skeleton variant="line" height={16} width="52%" />
+            <Skeleton variant="block" height={220} radius="lg" />
+          </View>
+        </View>
       </Screen>
     );
   }
@@ -76,7 +91,7 @@ export function CertificatesScreen() {
   // Empty state — no certificates yet (or backend not configured). Never faked.
   if (certificates.length === 0) {
     return (
-      <Screen>
+      <Screen onRefresh={onRefresh} refreshing={refreshing}>
         <View style={styles.header}>
           <Text
             style={{
@@ -90,7 +105,8 @@ export function CertificatesScreen() {
           </Text>
         </View>
         <Card style={{ gap: 8, alignItems: 'center', paddingVertical: 28 }}>
-          <Text style={{ fontSize: 30 }}>🎖️</Text>
+          {/* Kit medal glyph in a locked/neutral tone — no emoji. */}
+          <BadgeGlyph name="medal" size={34} color={theme.colors.textMuted} />
           <Text
             style={{
               color: theme.colors.text,
@@ -122,7 +138,7 @@ export function CertificatesScreen() {
   }
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <View style={styles.header}>
         <Text
           style={{
@@ -163,7 +179,6 @@ export function CertificatesScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

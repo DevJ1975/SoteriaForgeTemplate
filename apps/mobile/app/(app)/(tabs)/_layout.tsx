@@ -5,14 +5,9 @@
  * the active tab) so the chrome matches the kit's design language.
  */
 import { Redirect, Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { CoursesIcon, HomeIcon, ShowcaseIcon } from '@soteria-forge/ui';
 import { useAuth } from '../../../src/auth';
 import { useTheme } from '../../../src/theme';
-
-/** Minimal text glyph tab icon — avoids pulling an icon font into the scaffold. */
-function TabGlyph({ glyph, color }: { glyph: string; color: string }) {
-  return <Text style={{ color, fontSize: 18 }}>{glyph}</Text>;
-}
 
 export default function TabsLayout() {
   const theme = useTheme();
@@ -40,25 +35,26 @@ export default function TabsLayout() {
         },
       }}
     >
+      {/* Kit stroke icons; decorative — the tab labels carry the semantics. */}
       <Tabs.Screen
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <TabGlyph glyph="⌂" color={color} />,
+          tabBarIcon: ({ color }) => <HomeIcon size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="courses"
         options={{
           title: 'Courses',
-          tabBarIcon: ({ color }) => <TabGlyph glyph="▤" color={color} />,
+          tabBarIcon: ({ color }) => <CoursesIcon size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="showcase"
         options={{
           title: 'Showcase',
-          tabBarIcon: ({ color }) => <TabGlyph glyph="◆" color={color} />,
+          tabBarIcon: ({ color }) => <ShowcaseIcon size={22} color={color} />,
         }}
       />
     </Tabs>

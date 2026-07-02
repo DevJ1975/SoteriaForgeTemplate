@@ -17,16 +17,20 @@ src/
   services/api.ts        the data/service layer (repointed as the backend migrates)
   theme/                 tokens.css (--sf-* custom properties) + soteria-forge.css
   styles.css, assets/    global styles + assets
-vercel.json              SPA rewrite (all routes → /index.html)
+vercel.json              Vercel deploy config: scoped install + build (see below) + SPA rewrite
 ```
 
-## Design tokens (canonical + shared)
+## Design tokens (ember/spark — mirrored, not canonical)
 
-`src/theme/tokens.css` holds the `--sf-*` custom properties and is the CANONICAL scale, mirrored
-1:1 by `packages/ui` (`tokens.ts` + `tokens.css`). Ink/Bone/Cobalt: ink `#0E1A2E`, blue
-`#3DA9FC`, orange `#FF6B1F`, paper `#F5F4EF`. All CSS references the `--sf-*` vars — never fork a
-brand value into a component or a second stylesheet. If a token changes, `apps/console/src/theme`
-and `packages/ui` move together.
+**Ember/spark is THE Soteria Forge brand** (ADR-0009): ember `#E8551F` (primary), spark
+`#FFB552` (accent), warm ink `#1A1D22`, paper `#F1EEE8`, Oswald display / Barlow Semi Condensed
+body. The CANONICAL brand source is `packages/ui/src/theme.ts` (`palette` / `lightTheme` /
+`darkTheme`) — `src/theme/tokens.css` holds the `--sf-*` custom properties and mirrors those
+VALUES for the web surfaces. It must stay **byte-identical** with
+`apps/web/src/theme/tokens.css` (author once, copy verbatim, verify with `diff`). All CSS
+references the `--sf-*` vars (Ionic mappings live in `src/theme/soteria-forge.css`) — **never
+hardcode a brand hex** in a component or a second stylesheet. If a token changes, change
+`packages/ui/src/theme.ts` first, then move both `tokens.css` mirrors together.
 
 ## Shared contract
 
@@ -53,6 +57,18 @@ Express/Mongo and interim AWS/Amplify layers are retired. Keep `src/services/api
 stable when it is repointed or extended so views don't churn; prefer small typed adapters over
 sweeping rewrites. A green console after every change beats a clever refactor that redlines
 type-check.
+
+## Vercel deploy (config lives in `vercel.json`, not the dashboard)
+
+The Vercel project (root directory `apps/console`) builds from `vercel.json` so deploy behavior
+is repo-reviewed: the `installCommand` prunes the **ephemeral clone's** root `workspaces` list to
+`apps/console` + `packages/shared` before `npm install` — npm resolves the FULL workspace tree
+even under `--workspace` filtering, so without the prune any sibling workspace's bad dep (e.g. an
+unresolvable react-native spec in `apps/mobile`) breaks console deploys. The prune mutates only
+Vercel's throwaway clone, never the repo. `buildCommand` builds `@soteria-forge/shared` (its
+`dist/` declarations feed `vue-tsc`) then the console; `framework` is pinned to `vite` (Vercel
+misdetects react-router otherwise). CI's `verify-deps-resolve` job guards the whole-tree
+resolution class at PR time.
 
 ## Local workflow
 

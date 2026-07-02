@@ -18,8 +18,11 @@
     "android": {
       "package": "com.soteriaforge.learner",
       "adaptiveIcon": {
-        "backgroundColor": "#0E1A2E"
+        "backgroundColor": "#1A1D22"
       }
+    },
+    "splash": {
+      "backgroundColor": "#F1EEE8"
     },
     "plugins": [
       "expo-router",

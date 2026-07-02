@@ -83,6 +83,23 @@ npm run start             # Metro (dev client)
 > → "Cloudflare Stream"). Everything else — sign-in, courses, completion, certificates — works
 > without it.
 
+## App icon & splash (operator step)
+
+Binary image assets are **not authored in this repo** — generate them locally before a
+distributable EAS build (a dev build works fine without them; Expo falls back to defaults):
+
+1. Render PNGs from the forged-shield brand mark (the SVG geometry in
+   `packages/ui/src/Logo.tsx`, or the console brand SVGs under
+   `apps/console/src/assets/brand/logos/`):
+   - `icon.png` — 1024×1024 app icon,
+   - `adaptive-icon.png` — the Android adaptive-icon **foreground** (transparent background;
+     `app.json` already sets the ink `#1A1D22` background layer),
+   - `splash.png` — a centered splash mark (`app.json` already sets the paper `#F1EEE8`
+     splash background, which is valid image-less config on its own).
+2. Drop them in `apps/mobile/assets/` and point `app.json` at them (`expo.icon`,
+   `expo.android.adaptiveIcon.foregroundImage`, `expo.splash.image`).
+3. Rebuild (`eas build …` / `expo run:android`) — icons/splash are baked at build time.
+
 ## Notes
 
 - The first EAS build generates an Android keystore for you (managed credentials) — no manual signing setup.

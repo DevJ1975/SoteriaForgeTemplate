@@ -12,10 +12,14 @@
  *
  * Re-skinned on the @soteria-forge/ui kit: each course is a kit Card with a
  * status Badge, a ProgressBar of readiness, and tag Chips. Empty/loading/error
- * states use the kit Card + Button. The FlatList, hook contract, and the
- * tenant-scoped id-based navigation are all preserved. No hardcoded brand hex.
+ * states use the kit Card + Button (loading = skeleton course cards). Cards
+ * fade in with a light stagger (skipped under OS reduced-motion) and the list
+ * supports pull-to-refresh. The FlatList, hook contract, and the tenant-scoped
+ * id-based navigation are all preserved. No hardcoded brand hex.
  */
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import type { CourseRecord, CourseStatus } from '@soteria-forge/shared';
 import {
@@ -24,6 +28,8 @@ import {
   Card,
   Chip,
   ProgressBar,
+  Skeleton,
+  useReducedMotion,
   useTheme,
   type BadgeTone,
 } from '@soteria-forge/ui';
@@ -44,35 +50,71 @@ function statusBadge(status: CourseStatus): { label: string; tone: BadgeTone } {
   }
 }
 
+/** One skeleton stand-in shaped like a course card (title/badge, body, bar, tags). */
+function CourseCardSkeleton() {
+  return (
+    <Card>
+      <View style={styles.cardHeader}>
+        <Skeleton variant="line" height={18} width="62%" />
+        <Skeleton variant="line" height={20} width={64} radius="pill" />
+      </View>
+      <Skeleton variant="line" width="90%" style={{ marginTop: 12 }} />
+      <Skeleton variant="line" width="74%" style={{ marginTop: 8 }} />
+      <Skeleton variant="block" height={8} radius="pill" style={{ marginTop: 18 }} />
+      <View style={styles.tagRow}>
+        <Skeleton variant="line" height={30} width={72} radius="pill" />
+        <Skeleton variant="line" height={30} width={88} radius="pill" />
+      </View>
+    </Card>
+  );
+}
+
 export function CourseListScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const reducedMotion = useReducedMotion();
   const { courses, loading, backendPending, error, refetch } = useCourses();
 
-  if (loading) {
+  // Pull-to-refresh keeps the list mounted (the skeleton state below is only
+  // for the initial load); the spinner clears when the hook finishes loading.
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    if (!loading) setRefreshing(false);
+  }, [loading]);
+  const onRefresh = () => {
+    setRefreshing(true);
+    refetch();
+  };
+
+  if (loading && !refreshing) {
     return (
-      <Screen scroll={false} contentStyle={styles.center}>
-        <ProgressBar value={0.4} style={{ width: 160 }} />
+      <Screen scroll={false}>
         <Text
           style={{
-            color: theme.colors.textMuted,
-            fontFamily: theme.fonts.body,
-            fontSize: 14,
-            marginTop: 12,
+            color: theme.colors.text,
+            fontFamily: theme.fonts.display,
+            fontWeight: '700',
+            fontSize: 28,
           }}
         >
-          Loading your training…
+          Courses
         </Text>
+        <View style={{ gap: 12, paddingTop: 4 }}>
+          <CourseCardSkeleton />
+          <CourseCardSkeleton />
+          <CourseCardSkeleton />
+        </View>
       </Screen>
     );
   }
 
-  const renderCourse = ({ item }: { item: CourseRecord }) => {
+  const renderCourse = ({ item, index }: { item: CourseRecord; index: number }) => {
     const badge = statusBadge(item.status);
     const progress = Math.min(1, Math.max(0, item.fieldReadinessScore / 100));
-    return (
+    const card = (
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel={`${item.title}, ${badge.label}, ${Math.round(progress * 100)} percent complete`}
         onPress={() => router.push({ pathname: '/(app)/course/[id]', params: { id: item.id } })}
         style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
       >
@@ -134,6 +176,13 @@ export function CourseListScreen() {
         </Card>
       </Pressable>
     );
+
+    // Staggered fade-in on first appearance — skipped entirely under OS
+    // reduced-motion (no entering animation at all).
+    if (reducedMotion) return card;
+    return (
+      <Animated.View entering={FadeInDown.delay(index * 40).duration(260)}>{card}</Animated.View>
+    );
   };
 
   return (
@@ -158,8 +207,8 @@ export function CourseListScreen() {
         />
       ) : backendPending ? (
         <EmptyState
-          title="Backend not deployed"
-          body="Course data appears once the AppSync backend is running. Deploy backend/ or start a sandbox with `npx ampx sandbox`."
+          title="Backend not configured"
+          body="Course data appears once the app is configured with EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY — copy .env.example and restart."
         />
       ) : courses.length === 0 ? (
         <EmptyState
@@ -174,6 +223,14 @@ export function CourseListScreen() {
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           contentContainerStyle={{ paddingTop: 4, paddingBottom: 32 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+            />
+          }
         />
       )}
     </Screen>
@@ -226,7 +283,6 @@ function EmptyState({
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },

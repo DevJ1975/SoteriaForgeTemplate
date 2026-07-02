@@ -137,6 +137,10 @@ to the owner**, not silently resolved here.
   "fix" it by hardcoding console hexes into the kit or kit hexes into the
   console — reconcile at the token source.
 
+> **Resolution (2026-07-01):** the open brand decision recorded above was
+> decided — path 1 won; **ember/spark is the one Soteria Forge brand**. See
+> [ADR-0009](./0009-unify-brand-ember-spark.md).
+
 **Other ongoing costs**
 
 - New runtime peer deps for mobile: **`react-native-svg`** (logo, icons, charts,

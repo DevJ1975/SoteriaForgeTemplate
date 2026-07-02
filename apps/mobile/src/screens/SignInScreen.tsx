@@ -16,11 +16,16 @@
  * the kit Toast snackbar. All colour/type flows through useTheme() tokens — no
  * hardcoded brand hex.
  */
-import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type TextInput } from 'react-native';
 import { Button, Logo, TextField, useTheme, useToast } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useAuth, isSupabaseConfigured } from '../auth';
+import * as haptics from '../lib/haptics';
+
+// Deliberately simple shape check (something@something.tld) — the server is the
+// real validator; this only catches obvious typos before a round-trip.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function SignInScreen() {
   const theme = useTheme();
@@ -28,8 +33,10 @@ export function SignInScreen() {
   const { signIn, error } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
   const backendReady = isSupabaseConfigured;
 
@@ -41,6 +48,13 @@ export function SignInScreen() {
 
   const onSubmit = async () => {
     if (!email || !password || submitting) return;
+    // Cheap client-side shape check before hitting the network. Credentials
+    // sent are unchanged — this only gates obviously-malformed input.
+    if (!EMAIL_RE.test(email.trim())) {
+      setEmailError('Enter a valid email address, like you@company.com.');
+      return;
+    }
+    setEmailError(null);
     setSubmitting(true);
     try {
       // Tenancy is NOT collected here — only email/password. The tenant + role
@@ -50,13 +64,14 @@ export function SignInScreen() {
       await signIn({ username: email.trim(), password });
     } catch {
       // error surfaced via useAuth().error (inline helper + toast effect above)
+      haptics.error();
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Screen scroll={false} contentStyle={styles.center}>
+    <Screen scroll={false} keyboardAvoiding contentStyle={styles.center}>
       <View style={styles.header}>
         <Logo size={72} />
         <Text
@@ -87,17 +102,29 @@ export function SignInScreen() {
           label="Email"
           placeholder="you@company.com"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(v) => {
+            setEmail(v);
+            if (emailError) setEmailError(null);
+          }}
           keyboardType="email-address"
           autoCapitalize="none"
+          errorText={emailError ?? undefined}
+          // Focus chain: "next" hops to the password field without dropping the keyboard.
+          returnKeyType="next"
+          blurOnSubmit={false}
+          onSubmitEditing={() => passwordRef.current?.focus()}
         />
         <TextField
+          ref={passwordRef}
           label="Password"
           placeholder="••••••••"
           value={password}
           onChangeText={setPassword}
           secureTextEntry={!showPassword}
           autoCapitalize="none"
+          // "Go" submits straight from the keyboard.
+          returnKeyType="go"
+          onSubmitEditing={() => void onSubmit()}
           // Inline sign-in failures land on the password field; tenancy is never
           // part of this form, so the error is always a credential/backend issue.
           errorText={error ?? undefined}

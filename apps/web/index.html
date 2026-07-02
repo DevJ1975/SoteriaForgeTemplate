@@ -3,9 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Soteria Forge — browse and play your assigned safety training." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F1EEE8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#16181D" />
+    <meta property="og:title" content="Soteria FORGE" />
+    <meta property="og:description" content="Soteria Forge — browse and play your assigned safety training." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Inter+Tight:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      /* Pre-paint theme apply — prevents dark-mode FOUC. Keep in sync with the
+         app's theme toggle: localStorage "sf-theme" = 'light' | 'dark' | 'system';
+         the attribute stays absent for 'system' (prefers-color-scheme rules). */
+      try {
+        var sfTheme = localStorage.getItem('sf-theme');
+        if (sfTheme === 'light' || sfTheme === 'dark') {
+          document.documentElement.dataset.theme = sfTheme;
+        }
+      } catch (e) {}
+    </script>
     <title>Soteria FORGE</title>
   </head>
   <body>

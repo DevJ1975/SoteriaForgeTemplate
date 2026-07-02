@@ -3,7 +3,9 @@
  * Single import surface.
  */
 export * from './theme';
+export * from './motion';
 export * from './icons';
+export * from './Skeleton';
 export * from './Logo';
 export * from './Button';
 export * from './TextField';

@@ -55,9 +55,18 @@ widen access — Postgres refuses it. The `super-admin` role is the one cross-te
 
 ## Design tokens
 
-All color/spacing/type come from `@soteria-forge/ui` via `src/theme` (Ink/Bone/Cobalt: ink
-`#0E1A2E`, blue `#3DA9FC`, orange `#FF6B1F`, paper `#F5F4EF`). **Never hardcode a brand hex** in a
-component.
+All color/spacing/type come from `@soteria-forge/ui` via `src/theme` — the **ember/spark** brand
+(ember `#E8551F`, spark `#FFB552`, ink `#1A1D22`, paper `#F1EEE8`), which is THE brand
+platform-wide per [ADR-0009](../../docs/adr/0009-unify-brand-ember-spark.md); the canonical
+source is `packages/ui/src/theme.ts`. **Never hardcode a brand hex** in a component.
+
+- **Appearance override** persists in AsyncStorage under key **`sf.appearance`**
+  (`'light' | 'dark'`; key absent = follow the device). `src/theme/ThemeProvider.tsx` hydrates it
+  async without gating first paint; the `AppearanceToggle` component (Home) sets it via
+  `useThemeControls().setSchemeOverride`.
+- **Haptics** go through `src/lib/haptics.ts` (`selection`/`success`/`error`), a fail-silent
+  wrapper that lazy-imports `expo-haptics` — a missing native module is a no-op, so JS-only
+  environments and older dev clients keep working.
 
 ## Offline invariants (seams here, engine in offline-sync)
 

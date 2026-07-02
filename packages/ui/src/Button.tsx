@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, Text, ActivityIndicator, View } from 'react-native';
 import type { StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { useTheme, elevation } from './theme';
+import { useReducedMotion } from './motion';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -30,6 +31,7 @@ export function Button({
   disabled, loading, fullWidth, leftIcon, rightIcon, style,
 }: ButtonProps) {
   const t = useTheme();
+  const reducedMotion = useReducedMotion();
   const s = SIZES[size];
   const isDisabled = disabled || loading;
 
@@ -61,6 +63,8 @@ export function Button({
           borderColor: p.border,
           opacity: isDisabled ? 0.5 : 1,
           alignSelf: fullWidth ? 'stretch' : 'flex-start',
+          // Subtle press feedback; skipped under OS reduced-motion.
+          transform: [{ scale: pressed && !reducedMotion ? 0.98 : 1 }],
         },
         variant === 'primary' && !isDisabled ? elevation(1) : null,
         style as ViewStyle,

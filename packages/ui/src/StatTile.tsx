@@ -14,7 +14,11 @@ export type StatTileProps = {
 export function StatTile({ value, label, accent, style }: StatTileProps) {
   const t = useTheme();
   return (
-    <View style={[{ flex: 1, backgroundColor: t.colors.card, borderWidth: 1, borderColor: t.colors.border, borderRadius: t.radii.md, paddingVertical: 16, paddingHorizontal: 16 }, style]}>
+    <View
+      accessible
+      accessibilityLabel={`${label}: ${value}`}
+      style={[{ flex: 1, backgroundColor: t.colors.card, borderWidth: 1, borderColor: t.colors.border, borderRadius: t.radii.md, paddingVertical: 16, paddingHorizontal: 16 }, style]}
+    >
       <Text style={{ fontFamily: t.fonts.display, fontWeight: '700', fontSize: 30, lineHeight: 30, color: accent ?? t.colors.primary }}>
         {value}
       </Text>
