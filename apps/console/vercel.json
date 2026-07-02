@@ -4,6 +4,12 @@
   "installCommand": "cd ../.. && npm pkg delete workspaces && npm pkg set 'workspaces[]=apps/console' 'workspaces[]=packages/shared' && npm install --no-audit --no-fund",
   "buildCommand": "cd ../.. && npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/console",
   "outputDirectory": "dist",
+  "build": {
+    "env": {
+      "VITE_SUPABASE_URL": "https://bgnadngztngkwzneknhd.supabase.co",
+      "VITE_SUPABASE_ANON_KEY": "sb_publishable_A8ekb2Fm8XwM2AP8t4FPEg_vWPhsjGQ"
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",

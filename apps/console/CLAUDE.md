@@ -68,7 +68,12 @@ unresolvable react-native spec in `apps/mobile`) breaks console deploys. The pru
 Vercel's throwaway clone, never the repo. `buildCommand` builds `@soteria-forge/shared` (its
 `dist/` declarations feed `vue-tsc`) then the console; `framework` is pinned to `vite` (Vercel
 misdetects react-router otherwise). CI's `verify-deps-resolve` job guards the whole-tree
-resolution class at PR time.
+resolution class at PR time. `build.env` carries the TWO client-safe values Vite must inline at
+build time (`VITE_SUPABASE_URL` + the `sb_publishable_…` key — RLS-protected, ships in the JS
+bundle by design; without them the Supabase module throws before Vue mounts). Nothing else
+belongs there — the **service-role key never enters vercel.json, env, or the bundle**.
+`index.html` carries a boot-failure fallback that paints a readable error instead of a white
+page if the bundle throws before mount.
 
 ## Local workflow
 
