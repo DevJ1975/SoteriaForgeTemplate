@@ -250,23 +250,25 @@ export class SyncEngine {
     let maxRetryAttempt = 0;
 
     try {
-      // IDENTITY FENCE (defense in depth for compliance records): resolve the
-      // CURRENT session's auth user id once per drain. The server BEFORE INSERT
-      // trigger re-stamps user_id/tenant_id from whatever session performs the
-      // upload — so a stale row authored by user A must NEVER be uploaded under
-      // user B's session, or A's completion would be recorded as B's. Sign-out
-      // wipes the store (see AuthProvider), but even if that is ever missed,
-      // this fence keeps a queued statement pinned to its author: rows whose
-      // user_id differs from the current session (or any row when there is no
-      // session) are skipped and left pending, un-attempted.
-      const currentUserId = await this.currentUserId();
-
+      // IDENTITY FENCE (defense in depth for compliance records): the server
+      // BEFORE INSERT trigger re-stamps user_id/tenant_id from whatever session
+      // performs the upload — so a stale row authored by user A must NEVER be
+      // uploaded under user B's session, or A's completion would be recorded as
+      // B's. Sign-out wipes the store (see AuthProvider), but even if that is
+      // ever missed, this fence keeps a queued statement pinned to its author.
+      // We re-resolve the CURRENT session's auth user id immediately before
+      // each row (not once per drain): the fence must stay correct even if the
+      // live session ever changes mid-drain, since the upload — and the server
+      // re-stamp — happens per row, not per batch. Rows whose user_id differs
+      // from the current session are skipped and left pending, un-attempted;
+      // with no session at all the drain stops (nothing may upload).
       const pending = await this.queue.pending();
       for (const row of pending) {
         // Re-check connectivity between items: if we dropped offline mid-batch,
         // stop cleanly and leave the rest queued (never drop them).
         if (!this.connectivity.isOnline) break;
 
+        const currentUserId = await this.currentUserId();
         if (!currentUserId || row.userId !== currentUserId) {
           result.skipped += 1;
           continue;
