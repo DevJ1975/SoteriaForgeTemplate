@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "jsx": "react-jsx",
+    "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./src/*"]

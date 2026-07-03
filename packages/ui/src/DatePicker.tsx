@@ -13,7 +13,10 @@ export type DatePickerProps = {
 
 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const fmt = (d: Date) => `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}, ${d.getFullYear()}`;
+// `getMonth()` is always 0–11, but under `noUncheckedIndexedAccess` the indexed
+// read is `string | undefined` — fall back to '' rather than crash on a
+// hypothetical out-of-range value.
+const fmt = (d: Date) => `${MONTHS[d.getMonth()]?.slice(0, 3) ?? ''} ${d.getDate()}, ${d.getFullYear()}`;
 
 /**
  * Cross-platform date picker — a self-contained calendar in a modal.
