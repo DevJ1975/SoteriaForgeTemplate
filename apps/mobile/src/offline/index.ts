@@ -24,7 +24,6 @@ export type { ConnectivitySnapshot } from './netinfo';
 
 // Append-only completion-statement queue
 export {
-  completionQueue,
   CompletionQueue,
   toCompletionRow,
   REJECTED_MARKER,
@@ -34,9 +33,7 @@ export type { EnqueueCompletionInput, CompletionRowFields } from './queue';
 
 // Sync engine (idempotent, backoff, never drops the queue)
 export {
-  syncEngine,
   SyncEngine,
-  supabaseUploader,
   backoffDelayMs,
   decideNext,
   DEFAULT_BACKOFF,
@@ -49,7 +46,15 @@ export type {
   BackoffPolicy,
   SyncResult,
   CurrentUserIdProvider,
+  ConnectivityLike,
+  SyncEngineDeps,
 } from './sync';
+
+// Supabase transport (the one place a queued statement meets the network)
+export { supabaseUploader, currentAuthUserId } from './transport';
+
+// App-wide singletons: node-safe logic bound to the native runtime deps
+export { completionQueue, syncEngine } from './singletons';
 
 // Local catalog read/hydrate (course list + full course-tree snapshots)
 export {

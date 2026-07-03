@@ -35,9 +35,13 @@ import {
   type XapiObject,
   type XapiResult,
 } from '@soteria-forge/shared';
-import { database as defaultDatabase } from '../db';
 import { Tables } from '../db/schema';
 import type { CompletionStatementModel } from '../db/models';
+
+// NOTE: this module is deliberately NODE-SAFE (no import of `../db`, whose
+// SQLite adapter needs a native runtime): the Database is INJECTED. The
+// app-wide `completionQueue` singleton binding lives in `./singletons.ts`;
+// unit tests construct a CompletionQueue over an in-memory fake instead.
 
 /**
  * Input to enqueue a completion. Mirrors the shared builder input but requires a
@@ -148,12 +152,13 @@ function uploadableClauses() {
 }
 
 /**
- * The queue writer. Bound to a Database (defaults to the app singleton; tests
- * can inject a fake). All mutations funnel through here so "append-only" is
- * enforced in exactly one place.
+ * The queue writer. Bound to an injected Database (the app binds the SQLite
+ * singleton in `./singletons.ts`; tests inject an in-memory fake). All
+ * mutations funnel through here so "append-only" is enforced in exactly one
+ * place.
  */
 export class CompletionQueue {
-  constructor(private readonly db: Database = defaultDatabase) {}
+  constructor(private readonly db: Database) {}
 
   private get collection() {
     return this.db.get<CompletionStatementModel>(Tables.completionStatements);
@@ -292,6 +297,3 @@ export class CompletionQueue {
     return this.collection.query(...uploadableClauses()).observeCount();
   }
 }
-
-/** App-wide queue bound to the singleton database. */
-export const completionQueue = new CompletionQueue();

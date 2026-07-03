@@ -27,7 +27,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
-import type { CourseRecord, EnrollmentRecord } from '@soteria-forge/shared';
+import type { EnrollmentRecord } from '@soteria-forge/shared';
 import {
   Badge,
   Button,
@@ -41,29 +41,15 @@ import {
 } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useCourses, useEnrollments } from '../api';
+import {
+  buildCourseSections,
+  isEnrollmentComplete,
+  isEnrollmentOverdue,
+  type CourseListItem,
+} from './courseSections';
 
-/** One list row: a published course, plus the caller's enrollment if assigned. */
-interface CourseListItem {
-  course: CourseRecord;
-  enrollment: EnrollmentRecord | null;
-}
-
-interface CourseSection {
-  title: string;
-  data: CourseListItem[];
-}
-
-/** Is this enrollment finished (server status or 100% progress)? */
-function isEnrollmentComplete(e: EnrollmentRecord): boolean {
-  return e.status === 'completed' || e.progress >= 100;
-}
-
-/** Is this enrollment overdue (server status, or past its due date, unfinished)? */
-function isEnrollmentOverdue(e: EnrollmentRecord, now: number): boolean {
-  if (isEnrollmentComplete(e)) return false;
-  if (e.status === 'overdue') return true;
-  return e.dueAt !== undefined && Date.parse(e.dueAt) < now;
-}
+// The grouping/sorting/status logic lives in ./courseSections.ts (pure,
+// unit-tested); this file renders it.
 
 /** Badge for an ASSIGNED course, from the enrollment's real state. */
 function enrollmentBadge(e: EnrollmentRecord, now: number): { label: string; tone: BadgeTone } {
@@ -83,44 +69,6 @@ function formatDueDate(iso: string): string {
   } catch {
     return d.toDateString();
   }
-}
-
-/**
- * Group the published catalog against the caller's enrollments. Assigned rows
- * sort overdue first, then by soonest due date (no due date last), then title;
- * unassigned published courses form the browsable catalog section.
- */
-export function buildCourseSections(
-  courses: CourseRecord[],
-  enrollments: EnrollmentRecord[],
-  now: number = Date.now(),
-): CourseSection[] {
-  const enrollmentByCourse = new Map<string, EnrollmentRecord>();
-  for (const e of enrollments) enrollmentByCourse.set(e.courseId, e);
-
-  const assigned: CourseListItem[] = [];
-  const catalog: CourseListItem[] = [];
-  for (const course of courses) {
-    const enrollment = enrollmentByCourse.get(course.id) ?? null;
-    if (enrollment) assigned.push({ course, enrollment });
-    else catalog.push({ course, enrollment: null });
-  }
-
-  assigned.sort((a, b) => {
-    const ea = a.enrollment as EnrollmentRecord;
-    const eb = b.enrollment as EnrollmentRecord;
-    const overdueDelta = Number(isEnrollmentOverdue(eb, now)) - Number(isEnrollmentOverdue(ea, now));
-    if (overdueDelta !== 0) return overdueDelta;
-    const dueA = ea.dueAt !== undefined ? Date.parse(ea.dueAt) : Number.POSITIVE_INFINITY;
-    const dueB = eb.dueAt !== undefined ? Date.parse(eb.dueAt) : Number.POSITIVE_INFINITY;
-    if (dueA !== dueB) return dueA - dueB;
-    return a.course.title.localeCompare(b.course.title);
-  });
-
-  const sections: CourseSection[] = [];
-  if (assigned.length > 0) sections.push({ title: 'Assigned to me', data: assigned });
-  if (catalog.length > 0) sections.push({ title: 'Course catalog', data: catalog });
-  return sections;
 }
 
 /** One skeleton stand-in shaped like a course card (title/badge, body, bar, tags). */

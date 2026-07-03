@@ -34,12 +34,14 @@
 import type { Database } from '@nozbe/watermelondb';
 import type { XapiStatement } from '@soteria-forge/shared';
 import { statementIdempotencyKey } from '@soteria-forge/shared';
-import { database as defaultDatabase } from '../db';
 import { CompletionQueue, REJECTED_MARKER } from './queue';
 import type { CompletionStatementModel } from '../db/models';
-import { connectivity } from './netinfo';
-import { supabase, isSupabaseConfigured } from '../supabase';
-import type { Json, TablesInsert } from '@soteria-forge/shared/supabase';
+
+// NOTE: this module is deliberately NODE-SAFE (no import of `../db`,
+// `../supabase`, or `./netinfo`, all of which need a native runtime): every
+// dependency is INJECTED via SyncEngineDeps. The Supabase transport lives in
+// `./transport.ts` and the app-wide `syncEngine` singleton binding in
+// `./singletons.ts`; unit tests inject fakes for all of it.
 
 // ---------------------------------------------------------------------------
 // Transport seam
@@ -82,75 +84,18 @@ export type StatementUploader = (
   ctx: UploadContext,
 ) => Promise<UploadOutcome>;
 
-/**
- * Classify a PostgREST error code into a retry outcome.
- *
- * Auth/RLS refusals (permission denied, RLS violation) are permanent → 'rejected'.
- * Everything else (network already handled by the throw path, transient 5xx) is
- * treated as retryable so the durable queue simply drains later.
- */
-function outcomeForPostgrestCode(code: string | undefined): UploadOutcome {
-  // 42501 = insufficient_privilege, 42P17 = RLS recursion; PGRST301 = JWT/permission.
-  if (code === '42501' || code === '42P17' || code === 'PGRST301') return 'rejected';
-  return 'retryable';
-}
-
-/**
- * The default transport: upsert into `completion_statements`, ignoring duplicates
- * by the client UUID. Append-only + idempotent, exactly as the queue guarantees.
- */
-export const supabaseUploader: StatementUploader = async (statement, ctx) => {
-  if (!isSupabaseConfigured) {
-    // No configured backend → treat as retryable so the outbox accumulates and
-    // drains once credentials exist, just like being offline.
-    return 'retryable';
-  }
-
-  // The xAPI actor/verb/object/result/context are plain JSON-serializable values;
-  // they land in `jsonb` columns typed as `Json`. Cast at this single boundary so
-  // the structured xAPI types meet the generated column type cleanly.
-  const row: TablesInsert<'completion_statements'> = {
-    id: statement.id, // client UUID = idempotency key = primary key
-    // tenant_id is re-stamped server-side from the auth context by a BEFORE
-    // INSERT trigger; we pass the statement's own tenantId (itself derived from
-    // the verified profile) only to satisfy the column shape.
-    tenant_id: statement.tenantId,
-    user_id: ctx.userId,
-    actor: statement.actor as Json,
-    verb: statement.verb as Json,
-    object: statement.object as Json,
-    result: (statement.result ?? null) as Json | null,
-    context: (statement.context ?? null) as Json | null,
-    // `timestamp` is the xAPI ACTIVITY time; the table stores it as occurred_at.
-    occurred_at: statement.timestamp,
-  };
-
-  const { error } = await supabase
-    .from('completion_statements')
-    .upsert([row], { onConflict: 'id', ignoreDuplicates: true });
-
-  if (!error) return 'acked';
-  return outcomeForPostgrestCode(error.code);
-};
-
-/**
- * Resolve the CURRENT verified auth user id from the locally persisted Supabase
- * session (no network round-trip). Returns null when there is no session (or no
- * configured backend) — in which case the engine uploads NOTHING: a statement
- * may only ever be sent under the identity that authored it.
- */
-async function defaultCurrentAuthUserId(): Promise<string | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.user?.id ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** Seam for the engine's identity fence — injectable so tests need no Supabase. */
 export type CurrentUserIdProvider = () => Promise<string | null>;
+
+/**
+ * The connectivity surface the engine needs — satisfied by the app's
+ * ConnectivityService (`./netinfo`) and by a plain fake in tests.
+ */
+export interface ConnectivityLike {
+  readonly isOnline: boolean;
+  /** Subscribe to connectivity changes; returns an unsubscribe fn. */
+  subscribe(listener: (snap: { isOnline: boolean }) => void): () => void;
+}
 
 // ---------------------------------------------------------------------------
 // Backoff policy (pure, unit-testable)
@@ -220,19 +165,38 @@ export interface SyncResult {
   skipped: number;
 }
 
+/** Everything the engine talks to — injected so the engine itself is pure logic. */
+export interface SyncEngineDeps {
+  /** Transport that attempts one statement (the app binds the Supabase upsert). */
+  uploader: StatementUploader;
+  /** The local outbox database (the app binds the SQLite singleton). */
+  db: Database;
+  /** Resolves the CURRENT verified session user id — the identity fence. */
+  currentUserId: CurrentUserIdProvider;
+  /** Connectivity signal driving the local-only vs sync decision. */
+  connectivity: ConnectivityLike;
+  /** Retry/backoff policy; defaults to DEFAULT_BACKOFF. */
+  policy?: BackoffPolicy;
+}
+
 export class SyncEngine {
   private readonly queue: CompletionQueue;
+  private readonly uploader: StatementUploader;
+  private readonly db: Database;
+  private readonly policy: BackoffPolicy;
+  private readonly currentUserId: CurrentUserIdProvider;
+  private readonly connectivity: ConnectivityLike;
   private running = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribeConnectivity: (() => void) | null = null;
 
-  constructor(
-    private readonly uploader: StatementUploader = supabaseUploader,
-    private readonly db: Database = defaultDatabase,
-    private readonly policy: BackoffPolicy = DEFAULT_BACKOFF,
-    private readonly currentUserId: CurrentUserIdProvider = defaultCurrentAuthUserId,
-  ) {
-    this.queue = new CompletionQueue(db);
+  constructor(deps: SyncEngineDeps) {
+    this.uploader = deps.uploader;
+    this.db = deps.db;
+    this.policy = deps.policy ?? DEFAULT_BACKOFF;
+    this.currentUserId = deps.currentUserId;
+    this.connectivity = deps.connectivity;
+    this.queue = new CompletionQueue(deps.db);
   }
 
   /**
@@ -241,7 +205,7 @@ export class SyncEngine {
    */
   start(): void {
     if (this.unsubscribeConnectivity) return;
-    this.unsubscribeConnectivity = connectivity.subscribe((snap) => {
+    this.unsubscribeConnectivity = this.connectivity.subscribe((snap) => {
       if (snap.isOnline) void this.syncNow();
     });
     // `subscribe` emits current state immediately, so an already-online device
@@ -274,7 +238,7 @@ export class SyncEngine {
 
     // Never sync while offline — the local store is the source of truth until we
     // reconnect. This is the local-only vs sync gate.
-    if (!connectivity.isOnline) return result;
+    if (!this.connectivity.isOnline) return result;
     if (this.running) return result; // a drain is already in flight
     this.running = true;
 
@@ -301,7 +265,7 @@ export class SyncEngine {
       for (const row of pending) {
         // Re-check connectivity between items: if we dropped offline mid-batch,
         // stop cleanly and leave the rest queued (never drop them).
-        if (!connectivity.isOnline) break;
+        if (!this.connectivity.isOnline) break;
 
         if (!currentUserId || row.userId !== currentUserId) {
           result.skipped += 1;
@@ -400,10 +364,7 @@ export class SyncEngine {
     const jitter = Math.floor(Math.random() * (base * 0.25));
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      if (connectivity.isOnline) void this.syncNow();
+      if (this.connectivity.isOnline) void this.syncNow();
     }, base + jitter);
   }
 }
-
-/** App-wide sync engine bound to the singleton DB + (for now) the not-wired transport. */
-export const syncEngine = new SyncEngine();

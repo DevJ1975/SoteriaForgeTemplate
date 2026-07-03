@@ -21,8 +21,7 @@
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { connectivity, useConnectivitySnapshot } from './netinfo';
-import { completionQueue } from './queue';
-import { syncEngine } from './sync';
+import { completionQueue, syncEngine } from './singletons';
 
 export interface OfflineContextValue {
   /** Reachability, derived from NetInfo (see netinfo.ts). */

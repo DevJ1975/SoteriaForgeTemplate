@@ -32,6 +32,7 @@ import {
 import { AppearanceToggle, Screen } from '../components';
 import { useAuth } from '../auth';
 import { useEnrollments, useCertificates } from '../api';
+import { isEnrollmentComplete, isEnrollmentOverdue } from './courseSections';
 
 export function HomeScreen() {
   const theme = useTheme();
@@ -74,16 +75,12 @@ export function HomeScreen() {
   // "assigned / complete / overdue" from the caller's real enrollments.
   // UNITS: enrollment.progress is the server's INTEGER PERCENT (0–100); the
   // ProgressBar takes the app-internal 0–1 fraction, so we divide by 100 here.
+  // Complete/overdue use the SAME predicates as the course list
+  // (./courseSections) so the KPIs and the list badges can never disagree.
   const now = Date.now();
-  const isComplete = (progress: number, status: string) =>
-    status === 'completed' || progress >= 100;
   const assigned = enrollments.length;
-  const complete = enrollments.filter((e) => isComplete(e.progress, e.status)).length;
-  const overdue = enrollments.filter(
-    (e) =>
-      !isComplete(e.progress, e.status) &&
-      (e.status === 'overdue' || (e.dueAt !== undefined && Date.parse(e.dueAt) < now)),
-  ).length;
+  const complete = enrollments.filter(isEnrollmentComplete).length;
+  const overdue = enrollments.filter((e) => isEnrollmentOverdue(e, now)).length;
   const readiness =
     assigned > 0
       ? enrollments.reduce((sum, e) => sum + Math.min(100, Math.max(0, e.progress)), 0) /
