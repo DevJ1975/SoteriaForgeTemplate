@@ -123,6 +123,18 @@ export function toCompletionRow(
 export const REJECTED_MARKER = 'rejected';
 
 /**
+ * Verb IRIs that mark a lesson DONE, exactly mirroring the server progress
+ * trigger (migration 12): the canonical `completed` OR `passed`, matched
+ * exactly. `failed` is deliberately excluded — a failed quiz attempt is
+ * recorded but never counts toward completion. Keep this set and the trigger
+ * in lockstep.
+ */
+export const COMPLETION_VERB_IDS: ReadonlySet<string> = new Set([
+  xapiVerbs.completed,
+  xapiVerbs.passed,
+]);
+
+/**
  * Query clauses for "still uploadable" rows: unsynced AND not permanently
  * rejected. The explicit `last_error is null OR last_error != 'rejected'`
  * disjunction is deliberate — a plain not-equals over a nullable column risks
@@ -230,8 +242,10 @@ export class CompletionQueue {
    * if a sign-out wipe was ever missed). This mirrors the sync engine's upload
    * fence.
    *
-   * A completion is any queued statement whose verb is `completed` and whose
-   * `context.lesson_id` is set (the same shape the server progress trigger reads).
+   * A completion is any queued statement whose verb is `completed` OR `passed`
+   * (COMPLETION_VERB_IDS — the exact verb set the migration-12 server progress
+   * trigger counts; `failed` never counts) and whose `context.lesson_id` is set
+   * (the same shape that trigger reads).
    * When `courseId` is given, only completions in that course are returned. This
    * is READ-ONLY: it never mutates a row, preserving the append-only contract.
    *
@@ -251,7 +265,7 @@ export class CompletionQueue {
         // A corrupt local JSON payload must not blank the whole list — skip it.
         continue;
       }
-      if (statement.verb?.id !== xapiVerbs.completed) continue;
+      if (!statement.verb?.id || !COMPLETION_VERB_IDS.has(statement.verb.id)) continue;
       const ctx = (statement.context ?? {}) as {
         course_id?: unknown;
         lesson_id?: unknown;

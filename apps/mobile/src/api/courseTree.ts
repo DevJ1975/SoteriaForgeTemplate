@@ -8,9 +8,11 @@
  *   2. its modules (ordered by `sequence`),
  *   3. each module's lessons (ordered by `sequence`),
  *   4. the caller's OWN enrollment for that course (progress/status), and
- *   5. the set of lesson ids this device has locally recorded as completed,
- *      read from the append-only offline outbox — so a lesson shows as done the
- *      instant its completion is enqueued, even fully offline and before sync.
+ *   5. the set of lesson ids the caller has completed — the UNION of the local
+ *      append-only outbox (so a lesson shows as done the instant its completion
+ *      is enqueued, even fully offline and before sync) and the caller's own
+ *      `completion_statements` rows on the server (so completions synced from
+ *      ANOTHER device render here too).
  *
  * TENANT ISOLATION (the #1 rule): every table read here goes through the typed
  * `supabase.from(...)` client with NO `tenant_id` filter — Postgres RLS scopes
@@ -33,7 +35,7 @@ import type {
 } from '@soteria-forge/shared';
 import type { Tables } from '@soteria-forge/shared/supabase';
 import { useAuth } from '../auth/AuthProvider';
-import { completionQueue } from '../offline';
+import { completionQueue, COMPLETION_VERB_IDS } from '../offline';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { BackendNotConfiguredError } from './dataClient';
 
@@ -225,10 +227,45 @@ export function assembleCourseTree(params: {
 }
 
 /**
+ * The caller's OWN server-recorded completed lesson ids for one course — the
+ * cross-device half of the completed set (a completion synced from another
+ * device never appears in this device's local outbox).
+ *
+ * RLS-scoped: the select carries no tenant filter and can only ever return the
+ * caller's own tenant's rows; the `user_id`/course narrowing are convenience
+ * filters (a supervisor can read teammates' statements by policy — this hook
+ * must still only render the CALLER's own), never the security boundary. The
+ * verb set mirrors the migration-12 progress trigger exactly (completed OR
+ * passed; failed never counts).
+ */
+async function fetchServerCompletedLessonIds(
+  courseId: string,
+  userId: string,
+): Promise<Set<string>> {
+  const done = new Set<string>();
+  const { data, error } = await supabase
+    .from('completion_statements')
+    .select('verb, context')
+    .eq('user_id', userId)
+    // JSON-path filter; PostgREST resolves context->>course_id server-side.
+    .filter('context->>course_id', 'eq', courseId);
+  if (error) throw new Error(error.message);
+  for (const row of data ?? []) {
+    const verb = row.verb as { id?: unknown } | null;
+    const verbId = typeof verb?.id === 'string' ? verb.id : undefined;
+    if (!verbId || !COMPLETION_VERB_IDS.has(verbId)) continue;
+    const ctx = row.context as { lesson_id?: unknown } | null;
+    const lessonId = typeof ctx?.lesson_id === 'string' ? ctx.lesson_id : undefined;
+    if (lessonId) done.add(lessonId);
+  }
+  return done;
+}
+
+/**
  * Load the full player tree for one course, scoped to the caller's tenant + own
  * enrollment (both via RLS + the verified session), reflecting locally-queued
- * completions. Returns the standard {tree, loading, backendPending, error,
- * refetch} shape the screens consume.
+ * AND server-synced completions. Returns the standard {tree, loading,
+ * backendPending, error, refetch} shape the screens consume.
  */
 export function useCourseTree(courseId: string | undefined): UseCourseTreeResult {
   const { user } = useAuth();
@@ -268,18 +305,24 @@ export function useCourseTree(courseId: string | undefined): UseCourseTreeResult
     try {
       // All RLS-scoped: no tenant_id filter is sent. The server constrains every
       // row to the caller's tenant; the enrollment read narrows to the caller's
-      // own user_id (owner-pinned by policy for workers regardless).
-      const [courseRes, moduleRes, lessonRes, enrollRes] = await Promise.all([
-        supabase.from('courses').select('*').eq('id', courseId).maybeSingle(),
-        supabase.from('modules').select('*').eq('course_id', courseId),
-        supabase.from('lessons').select('*').eq('course_id', courseId),
-        supabase
-          .from('enrollments')
-          .select('*')
-          .eq('course_id', courseId)
-          .eq('user_id', userId)
-          .maybeSingle(),
-      ]);
+      // own user_id (owner-pinned by policy for workers regardless). The
+      // server-completions read is failure-tolerant (`.catch` → empty set): the
+      // cross-device union is an enhancement and must never block course open.
+      const [courseRes, moduleRes, lessonRes, enrollRes, serverCompleted] =
+        await Promise.all([
+          supabase.from('courses').select('*').eq('id', courseId).maybeSingle(),
+          supabase.from('modules').select('*').eq('course_id', courseId),
+          supabase.from('lessons').select('*').eq('course_id', courseId),
+          supabase
+            .from('enrollments')
+            .select('*')
+            .eq('course_id', courseId)
+            .eq('user_id', userId)
+            .maybeSingle(),
+          fetchServerCompletedLessonIds(courseId, userId).catch(
+            () => new Set<string>(),
+          ),
+        ]);
 
       const firstError =
         courseRes.error ?? moduleRes.error ?? lessonRes.error ?? enrollRes.error;
@@ -292,6 +335,10 @@ export function useCourseTree(courseId: string | undefined): UseCourseTreeResult
         setLoading(false);
         return;
       }
+
+      // UNION local ∪ server: a completion queued on this device shows before
+      // it ever syncs, and one synced from another device shows here too.
+      for (const id of serverCompleted) completedLessonIds.add(id);
 
       const built = assembleCourseTree({
         course: courseRowToRecord(courseRes.data),
@@ -416,6 +463,17 @@ export function useLesson(lessonId: string | undefined): UseLessonResult {
         completed = done.has(data.id);
       } catch {
         completed = false;
+      }
+      if (!completed && userId) {
+        // Cross-device: a completion synced from another device never appears
+        // in this device's outbox — check the caller's own server statements.
+        // Failure-tolerant: the local answer stands if this read fails.
+        try {
+          const server = await fetchServerCompletedLessonIds(data.course_id, userId);
+          completed = server.has(data.id);
+        } catch {
+          // keep the local answer
+        }
       }
 
       setLesson(lessonRowToDetail(data, completed));
