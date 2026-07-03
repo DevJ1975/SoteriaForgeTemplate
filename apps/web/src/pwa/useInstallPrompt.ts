@@ -15,6 +15,33 @@ interface BeforeInstallPromptEvent extends Event {
   readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+// Module-scope capture. Chromium fires `beforeinstallprompt` after `load`,
+// which can land BEFORE a component's effect registers a listener — so we wire
+// the listeners once at module load and stash the event here. The hook then
+// initialises from this captured value and subscribes for later changes, so an
+// early firing is never lost.
+let capturedPrompt: BeforeInstallPromptEvent | null = null
+let capturedInstalled = false
+const captureSubscribers = new Set<() => void>()
+
+function notifyCaptureSubscribers() {
+  for (const fn of captureSubscribers) fn()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (event) => {
+    // Suppress Chrome's default mini-infobar; we drive the prompt ourselves.
+    event.preventDefault()
+    capturedPrompt = event as BeforeInstallPromptEvent
+    notifyCaptureSubscribers()
+  })
+  window.addEventListener('appinstalled', () => {
+    capturedInstalled = true
+    capturedPrompt = null
+    notifyCaptureSubscribers()
+  })
+}
+
 function isStandalone(): boolean {
   if (typeof window === 'undefined') return false
   const displayMode = window.matchMedia?.('(display-mode: standalone)').matches ?? false
@@ -45,24 +72,20 @@ export interface InstallState {
 }
 
 export function useInstallPrompt(): InstallState {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
-  const [installed, setInstalled] = useState(() => isStandalone())
+  // Seed from the module-scope capture so an early firing is reflected on mount.
+  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(() => capturedPrompt)
+  const [installed, setInstalled] = useState(() => capturedInstalled || isStandalone())
 
   useEffect(() => {
-    const onBeforeInstall = (event: Event) => {
-      // Suppress Chrome's default mini-infobar; we drive the prompt ourselves.
-      event.preventDefault()
-      setDeferred(event as BeforeInstallPromptEvent)
+    const sync = () => {
+      setDeferred(capturedPrompt)
+      if (capturedInstalled) setInstalled(true)
     }
-    const onInstalled = () => {
-      setInstalled(true)
-      setDeferred(null)
-    }
-    window.addEventListener('beforeinstallprompt', onBeforeInstall)
-    window.addEventListener('appinstalled', onInstalled)
+    captureSubscribers.add(sync)
+    // Reconcile against anything captured between the initial render and now.
+    sync()
     return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstall)
-      window.removeEventListener('appinstalled', onInstalled)
+      captureSubscribers.delete(sync)
     }
   }, [])
 
@@ -71,6 +94,7 @@ export function useInstallPrompt(): InstallState {
     await deferred.prompt()
     const { outcome } = await deferred.userChoice
     // A prompt can only be used once; drop it whatever the choice.
+    capturedPrompt = null
     setDeferred(null)
     return outcome
   }, [deferred])
