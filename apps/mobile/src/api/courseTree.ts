@@ -23,9 +23,16 @@
  * from route params or any other input. The enrollment read additionally narrows
  * to the caller's own `user_id` (workers are owner-pinned by policy anyway).
  *
- * The completed-lesson set is read from the LOCAL WatermelonDB outbox via
- * `completionQueue.completedLessonIds(courseId)`, so the UI is correct offline;
- * it is display-only and never a security boundary.
+ * The completed-lesson set starts from the LOCAL WatermelonDB outbox via
+ * `completionQueue.completedLessonIds(userId, courseId)` (identity-fenced), so
+ * the UI is correct offline; the server union is display-only and never a
+ * security boundary.
+ *
+ * OFFLINE: on every successful online load the whole tree (course + modules +
+ * lessons incl. content + the caller's own enrollment) is snapshotted into the
+ * local store; when disconnected — or when a nominally-online read fails — the
+ * hooks assemble from that snapshot instead, so a downloaded course opens,
+ * renders, and records completions with no connectivity.
  */
 import { useCallback, useEffect, useState } from 'react';
 import type {
@@ -35,15 +42,47 @@ import type {
 } from '@soteria-forge/shared';
 import type { Tables } from '@soteria-forge/shared/supabase';
 import { useAuth } from '../auth/AuthProvider';
-import { completionQueue, COMPLETION_VERB_IDS } from '../offline';
+import {
+  completionQueue,
+  COMPLETION_VERB_IDS,
+  localCourseStore,
+  useConnectivityOptional,
+} from '../offline';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { BackendNotConfiguredError } from './dataClient';
 import { parseLessonContent, type LessonContent } from './lessonContent';
 
 type CourseRow = Tables<'courses'>;
-type ModuleRow = Tables<'modules'>;
-type LessonRow = Tables<'lessons'>;
 type EnrollmentRow = Tables<'enrollments'>;
+
+/**
+ * The minimal module/lesson shapes the tree assembly + lesson detail need.
+ * Both the LIVE server rows (`Tables<'modules'|'lessons'>`) and the offline
+ * cache's snapshots (localStore) satisfy these structurally, so the online and
+ * offline paths share one assembler and one detail mapper.
+ */
+export interface ModuleRowLike {
+  id: string;
+  course_id: string;
+  title: string;
+  description: string | null;
+  sequence: number;
+}
+
+export interface LessonRowLike {
+  id: string;
+  course_id: string;
+  module_id: string;
+  title: string;
+  description: string | null;
+  kind: string;
+  sequence: number;
+  duration_minutes: number;
+  required: boolean;
+  passing_score: number | null;
+  /** Raw `lessons.content` value (jsonb online / decoded cache offline). */
+  content: unknown;
+}
 
 /** A lesson as the player renders it, plus its locally-known completion state. */
 export interface LessonNode {
@@ -56,7 +95,7 @@ export interface LessonNode {
   sequence: number;
   durationMinutes: number;
   required: boolean;
-  /** True when this device has locally recorded a `completed` statement for it. */
+  /** True when the caller is known (locally or server-side) to have completed it. */
   completed: boolean;
 }
 
@@ -158,8 +197,8 @@ function enrollmentRowToRecord(row: EnrollmentRow): EnrollmentRecord {
  */
 export function assembleCourseTree(params: {
   course: CourseRecord;
-  moduleRows: ModuleRow[];
-  lessonRows: LessonRow[];
+  moduleRows: ModuleRowLike[];
+  lessonRows: LessonRowLike[];
   enrollment: EnrollmentRecord | null;
   completedLessonIds: Set<string>;
 }): CourseTree {
@@ -271,13 +310,15 @@ async function fetchServerCompletedLessonIds(
 export function useCourseTree(courseId: string | undefined): UseCourseTreeResult {
   const { user } = useAuth();
   const userId = user?.userId;
+  const tenantId = user?.tenantId;
+  const { isOnline } = useConnectivityOptional();
   const [tree, setTree] = useState<CourseTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [backendPending, setBackendPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!courseId || !userId) {
+    if (!courseId || !userId || !tenantId) {
       setLoading(false);
       return;
     }
@@ -296,9 +337,48 @@ export function useCourseTree(courseId: string | undefined): UseCourseTreeResult
       completedLessonIds = new Set<string>();
     }
 
+    // Assemble the tree from the offline snapshot (hydrated on a previous
+    // online load). Shared by the offline path and the network-failure
+    // fallback. Returns false when nothing is cached for this course.
+    const loadFromCache = async (): Promise<boolean> => {
+      try {
+        const cached = await localCourseStore.readCourseTree(tenantId, courseId, userId);
+        if (!cached) return false;
+        setTree(
+          assembleCourseTree({
+            course: cached.course,
+            moduleRows: cached.modules,
+            lessonRows: cached.lessons,
+            enrollment: cached.enrollment,
+            completedLessonIds,
+          }),
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // OFFLINE: the local snapshot is the source of truth — never hit the
+    // network (same graceful pattern useCourses uses).
+    if (!isOnline) {
+      const hit = await loadFromCache();
+      if (!hit) {
+        setTree(null);
+        setError(
+          'This course isn’t available offline yet. Reconnect once to download it.',
+        );
+      }
+      setLoading(false);
+      return;
+    }
+
     if (!isSupabaseConfigured) {
-      setBackendPending(true);
-      setTree(null);
+      // Backend not wired: any earlier snapshot still opens; otherwise show
+      // the explanatory pending state.
+      const hit = await loadFromCache();
+      setBackendPending(!hit);
+      if (!hit) setTree(null);
       setLoading(false);
       return;
     }
@@ -341,25 +421,46 @@ export function useCourseTree(courseId: string | undefined): UseCourseTreeResult
       // it ever syncs, and one synced from another device shows here too.
       for (const id of serverCompleted) completedLessonIds.add(id);
 
+      const course = courseRowToRecord(courseRes.data);
+      const enrollment = enrollRes.data ? enrollmentRowToRecord(enrollRes.data) : null;
       const built = assembleCourseTree({
-        course: courseRowToRecord(courseRes.data),
+        course,
         moduleRows: moduleRes.data ?? [],
         lessonRows: lessonRes.data ?? [],
-        enrollment: enrollRes.data ? enrollmentRowToRecord(enrollRes.data) : null,
+        enrollment,
         completedLessonIds,
       });
       setTree(built);
+
+      // Best-effort offline snapshot for the next disconnected session (course
+      // + modules + lessons incl. content + the caller's own enrollment).
+      // Never blocks the UI; a hydrate failure must not surface as a load error.
+      void localCourseStore
+        .hydrateCourseTree(tenantId, userId, {
+          course,
+          modules: moduleRes.data ?? [],
+          lessons: lessonRes.data ?? [],
+          enrollment,
+        })
+        .catch(() => {});
     } catch (err) {
       if (err instanceof BackendNotConfiguredError) {
-        setBackendPending(true);
-        setTree(null);
+        const hit = await loadFromCache();
+        setBackendPending(!hit);
+        if (!hit) setTree(null);
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to load course');
+        // Transient network failure while nominally online: fall back to the
+        // offline snapshot instead of blanking the course; only surface an
+        // error when nothing is cached.
+        const hit = await loadFromCache();
+        if (!hit) {
+          setError(err instanceof Error ? err.message : 'Failed to load course');
+        }
       }
     } finally {
       setLoading(false);
     }
-  }, [courseId, userId]);
+  }, [courseId, userId, tenantId, isOnline]);
 
   useEffect(() => {
     void load();
@@ -402,7 +503,7 @@ export interface UseLessonResult {
   refetch: () => void;
 }
 
-function lessonRowToDetail(row: LessonRow, completed: boolean): LessonDetail {
+function lessonRowToDetail(row: LessonRowLike, completed: boolean): LessonDetail {
   return {
     id: row.id,
     courseId: row.course_id,
@@ -421,13 +522,16 @@ function lessonRowToDetail(row: LessonRow, completed: boolean): LessonDetail {
 }
 
 /**
- * Load ONE lesson by id, tenant-scoped by RLS (a deep-linked lesson id can only
- * resolve within the caller's tenant), reflecting whether this device has
- * already queued its completion. Identity comes only from the verified session.
+ * Load ONE lesson by id — tenant-scoped by RLS online (a deep-linked lesson id
+ * can only resolve within the caller's tenant), from the offline snapshot when
+ * disconnected (the cache is tenant-tagged with the verified claim). Identity
+ * comes only from the verified session.
  */
 export function useLesson(lessonId: string | undefined): UseLessonResult {
   const { user } = useAuth();
   const userId = user?.userId;
+  const tenantId = user?.tenantId;
+  const { isOnline } = useConnectivityOptional();
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [backendPending, setBackendPending] = useState(false);
@@ -442,9 +546,61 @@ export function useLesson(lessonId: string | undefined): UseLessonResult {
     setError(null);
     setBackendPending(false);
 
+    // Locally-known completion first (identity-fenced to the session user);
+    // then, only when reachable, the caller's own server statements
+    // (cross-device). Failure-tolerant at every step.
+    const resolveCompleted = async (row: LessonRowLike): Promise<boolean> => {
+      let completed = false;
+      try {
+        const done = userId
+          ? await completionQueue.completedLessonIds(userId, row.course_id)
+          : new Set<string>();
+        completed = done.has(row.id);
+      } catch {
+        completed = false;
+      }
+      if (!completed && userId && isOnline && isSupabaseConfigured) {
+        try {
+          const server = await fetchServerCompletedLessonIds(row.course_id, userId);
+          completed = server.has(row.id);
+        } catch {
+          // keep the local answer
+        }
+      }
+      return completed;
+    };
+
+    // Serve the lesson from the offline snapshot (hydrated by a previous
+    // online course open). Returns false when it was never cached.
+    const loadFromCache = async (): Promise<boolean> => {
+      if (!tenantId) return false;
+      try {
+        const cached = await localCourseStore.getLesson(tenantId, lessonId);
+        if (!cached) return false;
+        setLesson(lessonRowToDetail(cached, await resolveCompleted(cached)));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // OFFLINE: local snapshot or a clear explanation — never a network call.
+    if (!isOnline) {
+      const hit = await loadFromCache();
+      if (!hit) {
+        setLesson(null);
+        setError(
+          'This lesson isn’t available offline yet. Reconnect once to download it.',
+        );
+      }
+      setLoading(false);
+      return;
+    }
+
     if (!isSupabaseConfigured) {
-      setBackendPending(true);
-      setLesson(null);
+      const hit = await loadFromCache();
+      setBackendPending(!hit);
+      if (!hit) setLesson(null);
       setLoading(false);
       return;
     }
@@ -463,40 +619,24 @@ export function useLesson(lessonId: string | undefined): UseLessonResult {
         return;
       }
 
-      let completed = false;
-      try {
-        // Scoped to the CURRENT session's user id (identity fence).
-        const done = userId
-          ? await completionQueue.completedLessonIds(userId, data.course_id)
-          : new Set<string>();
-        completed = done.has(data.id);
-      } catch {
-        completed = false;
-      }
-      if (!completed && userId) {
-        // Cross-device: a completion synced from another device never appears
-        // in this device's outbox — check the caller's own server statements.
-        // Failure-tolerant: the local answer stands if this read fails.
-        try {
-          const server = await fetchServerCompletedLessonIds(data.course_id, userId);
-          completed = server.has(data.id);
-        } catch {
-          // keep the local answer
-        }
-      }
-
-      setLesson(lessonRowToDetail(data, completed));
+      setLesson(lessonRowToDetail(data, await resolveCompleted(data)));
     } catch (err) {
       if (err instanceof BackendNotConfiguredError) {
-        setBackendPending(true);
-        setLesson(null);
+        const hit = await loadFromCache();
+        setBackendPending(!hit);
+        if (!hit) setLesson(null);
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to load lesson');
+        // Transient failure while nominally online → offline snapshot; only
+        // surface an error when nothing is cached.
+        const hit = await loadFromCache();
+        if (!hit) {
+          setError(err instanceof Error ? err.message : 'Failed to load lesson');
+        }
       }
     } finally {
       setLoading(false);
     }
-  }, [lessonId, userId]);
+  }, [lessonId, userId, tenantId, isOnline]);
 
   useEffect(() => {
     void load();

@@ -46,6 +46,7 @@ export const Tables = {
   lessons: 'lessons',
   quizState: 'quiz_state',
   videos: 'videos',
+  enrollments: 'enrollments',
   completionStatements: 'completion_statements',
 } as const;
 
@@ -54,8 +55,13 @@ export type TableName = (typeof Tables)[keyof typeof Tables];
 /**
  * Current schema version. Bump on any structural change and pair with a
  * migration (see migrations.ts).
+ *
+ * v2: offline course-taking — `lessons.content_json` (authored lesson content
+ * cached for offline rendering/quizzes) + the `enrollments` snapshot table
+ * (the caller's own enrollment progress/status/due date, cached on online
+ * course-tree loads so the course header renders offline).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const schema = appSchema({
   version: SCHEMA_VERSION,
@@ -116,7 +122,35 @@ export const schema = appSchema({
         { name: 'passing_score', type: 'number', isOptional: true },
         // For video lessons — the VideoAsset id this lesson plays.
         { name: 'video_id', type: 'string', isOptional: true },
+        // JSON-encoded `lessons.content` (body text / quiz questions), cached
+        // so document/reflection/quiz lessons render + score fully offline.
+        { name: 'content_json', type: 'string', isOptional: true },
         { name: 'server_updated_at', type: 'string' },
+      ],
+    }),
+
+    // -----------------------------------------------------------------------
+    // The caller's OWN enrollment snapshots (course progress/status/due date),
+    // cached on online course-tree loads so a course opens offline with its
+    // real header state. One-way server → device; the device never edits an
+    // enrollment (the server trigger recomputes it from statements).
+    // -----------------------------------------------------------------------
+    tableSchema({
+      name: Tables.enrollments,
+      columns: [
+        // Server enrollment id (EnrollmentRecord.id).
+        { name: 'server_id', type: 'string', isIndexed: true },
+        { name: 'tenant_id', type: 'string', isIndexed: true },
+        { name: 'user_id', type: 'string', isIndexed: true },
+        { name: 'course_id', type: 'string', isIndexed: true },
+        { name: 'status', type: 'string' },
+        // SERVER UNITS: integer percent 0–100 (see the api layer's mappers).
+        { name: 'progress', type: 'number' },
+        { name: 'due_at', type: 'string', isOptional: true },
+        { name: 'completed_at', type: 'string', isOptional: true },
+        { name: 'server_created_at', type: 'string' },
+        // When this snapshot was downloaded/refreshed locally (ms epoch).
+        { name: 'downloaded_at', type: 'number' },
       ],
     }),
 

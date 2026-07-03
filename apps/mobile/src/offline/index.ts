@@ -51,8 +51,14 @@ export type {
   CurrentUserIdProvider,
 } from './sync';
 
-// Local catalog read/hydrate
-export { localCourseStore, LocalCourseStore, courseModelToRecord } from './localStore';
+// Local catalog read/hydrate (course list + full course-tree snapshots)
+export {
+  localCourseStore,
+  LocalCourseStore,
+  courseModelToRecord,
+  enrollmentModelToRecord,
+} from './localStore';
+export type { CachedCourseTree, CourseTreeHydrationInput } from './localStore';
 
 // Per-lesson quiz scratch state (resume + idempotent re-submit)
 export { quizStateStore, QuizStateStore } from './quizStore';
