@@ -18,6 +18,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type TextInput } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Button, Logo, TextField, useTheme, useToast } from '@soteria-forge/ui';
 import { Screen } from '../components';
 import { useAuth, isSupabaseConfigured } from '../auth';
@@ -30,6 +31,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function SignInScreen() {
   const theme = useTheme();
   const toast = useToast();
+  const router = useRouter();
   const { signIn, error } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -157,6 +159,27 @@ export function SignInScreen() {
           loading={submitting}
           disabled={!backendReady || !email || !password}
         />
+
+        {/* Password reset: collects only an email on the next screen; the
+            emailed link completes the flow (deep-link completion follows). */}
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="Forgot password"
+          hitSlop={8}
+          onPress={() => router.push('/(auth)/forgot-password')}
+        >
+          <Text
+            style={{
+              color: theme.colors.primary,
+              fontFamily: theme.fonts.display,
+              fontWeight: '600',
+              fontSize: 13.5,
+              textAlign: 'center',
+            }}
+          >
+            Forgot password?
+          </Text>
+        </Pressable>
 
         <Text
           style={{

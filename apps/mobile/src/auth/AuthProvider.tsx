@@ -85,6 +85,13 @@ export interface RedeemResult {
   error?: string;
 }
 
+/** Result of a simple auth action (e.g. requesting a password reset). */
+export interface AuthActionResult {
+  ok: boolean;
+  /** Human-readable failure reason when `ok` is false. */
+  error?: string;
+}
+
 interface AuthContextValue {
   status: AuthStatus;
   user: AuthUser | null;
@@ -105,6 +112,14 @@ interface AuthContextValue {
    * calling with an already-redeemed token is safe.
    */
   redeemInvitation: (inviteToken: string) => Promise<RedeemResult>;
+  /**
+   * Ask Supabase Auth to email a password-reset link. Fire-and-forget from the
+   * caller's perspective: success does NOT reveal whether an account exists
+   * (Supabase answers OK for unknown emails), so the UI shows the same neutral
+   * message either way. Completing the reset happens via the emailed link
+   * (in-app deep-link completion is a documented follow-up).
+   */
+  requestPasswordReset: (email: string) => Promise<AuthActionResult>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -372,6 +387,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refreshProfile],
   );
 
+  /**
+   * Request a password-reset email. Carries ONLY the email address — no
+   * tenancy, no identifiers. The reset link Supabase emails completes the flow
+   * outside the app for now (deep-link completion is a follow-up); the caller
+   * shows a neutral confirmation that never confirms account existence.
+   */
+  const requestPasswordReset = useCallback(
+    async (email: string): Promise<AuthActionResult> => {
+      if (!isSupabaseConfigured) {
+        return { ok: false, error: 'Backend is not configured yet.' };
+      }
+      const address = email.trim();
+      if (!address) {
+        return { ok: false, error: 'Enter your email address.' };
+      }
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(address);
+      if (resetError) {
+        // Supabase answers OK even for unknown emails, so anything surfacing
+        // here is a real config/rate-limit problem worth showing.
+        return { ok: false, error: resetError.message || 'Could not send the reset email.' };
+      }
+      return { ok: true };
+    },
+    [],
+  );
+
   // Initial session read + react to Supabase auth events (sign-in, sign-out,
   // token refresh, user update). onAuthStateChange emits the current session
   // immediately on subscribe, so this also covers the initial read.
@@ -412,8 +453,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refresh,
       refreshProfile,
       redeemInvitation,
+      requestPasswordReset,
     }),
-    [status, user, error, signIn, signOut, refresh, refreshProfile, redeemInvitation],
+    [
+      status,
+      user,
+      error,
+      signIn,
+      signOut,
+      refresh,
+      refreshProfile,
+      redeemInvitation,
+      requestPasswordReset,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

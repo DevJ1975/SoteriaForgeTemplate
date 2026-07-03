@@ -4,6 +4,7 @@
  * decoupled.
  */
 export { SignInScreen } from './SignInScreen';
+export { ForgotPasswordScreen } from './ForgotPasswordScreen';
 export { HomeScreen } from './HomeScreen';
 export { CourseListScreen } from './CourseListScreen';
 export { CourseDetailScreen } from './CourseDetailScreen';
