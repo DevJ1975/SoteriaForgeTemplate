@@ -106,6 +106,14 @@ distributable EAS build (a dev build works fine without them; Expo falls back to
 
 ## Notes
 
+- **WatermelonDB runs on the async bridge for now** (`disableJsi: true` on the config plugin):
+  the plugin's Android JSI injection targets an API React Native removed after 0.73, so it cannot
+  compile on RN 0.76. `SQLiteAdapter({ jsi: true })` detects the missing JSI install and falls
+  back to the async bridge with a console warning — correct, just slower. Revisit with the SDK
+  upgrade.
+- **If a lockfile is ever committed**, keep `@supabase/supabase-js` resolving to ≥ 2.50: older
+  pins pull a `realtime-js` that requires Node's `ws`/`stream`, which breaks the Metro bundle
+  under the package-exports resolution this app enables.
 - **New Architecture is intentionally OFF** (`newArchEnabled: false` in `app.json`) for first
   boots: WatermelonDB's JSI adapter has a history of new-arch incompatibilities, and a first
   device bring-up should have the fewest unknowns. Revisit (flip to `true`) alongside the

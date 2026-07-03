@@ -62,11 +62,13 @@ export function getDatabase(): Database {
  * Lazy singleton facade. The offline singletons (queue, sync, local store) are
  * constructed at module scope on the app's boot path, so if the adapter were
  * built eagerly here, a native-init failure (missing/broken WatermelonDB module
- * in the dev client) would crash the app at import time — before any screen
+ * in the dev client) would crash the app at IMPORT time — before any screen
  * renders. This Proxy keeps the `database` export and its API intact while
- * deferring adapter construction to the first actual USE, which happens inside
- * the OfflineProvider's try/catch: a failed native init degrades to
- * "offline store unavailable" instead of a boot crash.
+ * deferring adapter construction to first actual USE. On a failed native init
+ * that first use is the sync engine's initial `syncNow()` drain, where the
+ * throw surfaces as a rejected promise (a LogBox warning, not a boot crash),
+ * and the OfflineProvider's guarded pending-count effect then degrades the UI
+ * to "offline store unavailable".
  */
 export const database: Database = new Proxy({} as Database, {
   get(_target, prop) {

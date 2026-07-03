@@ -28,7 +28,12 @@
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
-      "@morrowdigital/watermelondb-expo-plugin",
+      [
+        "@morrowdigital/watermelondb-expo-plugin",
+        {
+          "disableJsi": true
+        }
+      ],
       [
         "expo-build-properties",
         {
