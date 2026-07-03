@@ -192,9 +192,15 @@ export class CompletionQueue {
   }
 
   /**
-   * The set of lesson ids this device has locally recorded as COMPLETED, read
+   * The set of lesson ids the given user has locally recorded as COMPLETED, read
    * from the append-only outbox (synced or not) so the UI reflects a completion
    * the instant it is enqueued — before it ever reaches the server.
+   *
+   * IDENTITY FENCE: `userId` is REQUIRED and must be the CURRENT verified
+   * session's auth user id. Rows are filtered by their `user_id` column so one
+   * user's completions can never render as another's on a shared device (e.g.
+   * if a sign-out wipe was ever missed). This mirrors the sync engine's upload
+   * fence.
    *
    * A completion is any queued statement whose verb is `completed` and whose
    * `context.lesson_id` is set (the same shape the server progress trigger reads).
@@ -205,9 +211,10 @@ export class CompletionQueue {
    * display — authorization is still Postgres RLS on the server; a mis-scoped row
    * could never be inserted server-side in the first place.
    */
-  async completedLessonIds(courseId?: string): Promise<Set<string>> {
-    const rows = await this.collection.query().fetch();
+  async completedLessonIds(userId: string, courseId?: string): Promise<Set<string>> {
     const completed = new Set<string>();
+    if (!userId) return completed; // no verified identity → nothing to show
+    const rows = await this.collection.query(Q.where('user_id', userId)).fetch();
     for (const row of rows) {
       let statement: XapiStatement;
       try {

@@ -35,6 +35,8 @@ import {
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { normalizeGroups, type CognitoGroup } from '@soteria-forge/shared';
 import { supabase, isSupabaseConfigured } from '../supabase';
+import { syncEngine } from '../offline';
+import { resetDatabase } from '../db';
 
 /** Email/password credentials for sign-in. Tenancy is NEVER part of this input. */
 export interface SignInInput {
@@ -106,6 +108,15 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+/**
+ * Upper bound on the final outbox drain attempted during sign-out. Sign-out must
+ * stay responsive on a dead network, so the drain is raced against this timer —
+ * whatever has not uploaded by then is wiped with the rest of the local store
+ * (the sync engine's identity fence guarantees a leftover row could never be
+ * uploaded under a different user anyway).
+ */
+const SIGN_OUT_DRAIN_TIMEOUT_MS = 8_000;
 
 /**
  * Outcome of projecting a session, kept as a discriminated union so the caller
@@ -266,7 +277,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  /**
+   * Sign out with DATA-INTEGRITY FENCING (compliance records must never cross
+   * identities). Order matters:
+   *
+   *   1. FINAL DRAIN (best-effort, time-bounded): flush the offline outbox
+   *      while THIS user's session is still the one attached to the Supabase
+   *      client, so their queued completions upload under their own identity.
+   *      The server BEFORE INSERT trigger stamps user_id/tenant_id from the
+   *      CURRENT session — draining after sign-out (or under the next user)
+   *      would mis-attribute statements.
+   *   2. WIPE the local store (resetDatabase): no cached tenant catalog and no
+   *      unsynced statements may survive into another identity's session on
+   *      this device. Anything the drain did not upload is intentionally
+   *      discarded — the sync engine's identity fence additionally guarantees
+   *      that even a missed wipe could never upload user A's rows as user B.
+   *   3. Sign out of Supabase Auth and clear the projected identity.
+   *
+   * Every step is failure-isolated: a dead network or an unopenable local store
+   * must never trap a user in a signed-in state.
+   */
   const signOut = useCallback(async () => {
+    try {
+      await Promise.race([
+        syncEngine.syncNow(),
+        new Promise<void>((resolve) => setTimeout(resolve, SIGN_OUT_DRAIN_TIMEOUT_MS)),
+      ]);
+    } catch {
+      // Best-effort only — an offline/failed drain never blocks sign-out.
+    }
+    try {
+      await resetDatabase();
+    } catch {
+      // An unopenable store must not block sign-out; the engine's identity
+      // fence still prevents any leftover row from crossing identities.
+    }
     try {
       await supabase.auth.signOut();
     } finally {

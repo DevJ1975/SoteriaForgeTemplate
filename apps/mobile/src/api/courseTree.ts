@@ -248,9 +248,11 @@ export function useCourseTree(courseId: string | undefined): UseCourseTreeResult
     setBackendPending(false);
 
     // The completed-lesson set is LOCAL-first, so it works even with no backend.
+    // Scoped to the CURRENT session's user id so one identity's completions can
+    // never render as another's on a shared device.
     let completedLessonIds: Set<string>;
     try {
-      completedLessonIds = await completionQueue.completedLessonIds(courseId);
+      completedLessonIds = await completionQueue.completedLessonIds(userId, courseId);
     } catch {
       // A missing native store must never blank the screen — treat as none-known.
       completedLessonIds = new Set<string>();
@@ -368,6 +370,8 @@ function lessonRowToDetail(row: LessonRow, completed: boolean): LessonDetail {
  * already queued its completion. Identity comes only from the verified session.
  */
 export function useLesson(lessonId: string | undefined): UseLessonResult {
+  const { user } = useAuth();
+  const userId = user?.userId;
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [backendPending, setBackendPending] = useState(false);
@@ -405,7 +409,10 @@ export function useLesson(lessonId: string | undefined): UseLessonResult {
 
       let completed = false;
       try {
-        const done = await completionQueue.completedLessonIds(data.course_id);
+        // Scoped to the CURRENT session's user id (identity fence).
+        const done = userId
+          ? await completionQueue.completedLessonIds(userId, data.course_id)
+          : new Set<string>();
         completed = done.has(data.id);
       } catch {
         completed = false;
@@ -422,7 +429,7 @@ export function useLesson(lessonId: string | undefined): UseLessonResult {
     } finally {
       setLoading(false);
     }
-  }, [lessonId]);
+  }, [lessonId, userId]);
 
   useEffect(() => {
     void load();

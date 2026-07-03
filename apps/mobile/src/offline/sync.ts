@@ -133,6 +133,25 @@ export const supabaseUploader: StatementUploader = async (statement, ctx) => {
   return outcomeForPostgrestCode(error.code);
 };
 
+/**
+ * Resolve the CURRENT verified auth user id from the locally persisted Supabase
+ * session (no network round-trip). Returns null when there is no session (or no
+ * configured backend) — in which case the engine uploads NOTHING: a statement
+ * may only ever be sent under the identity that authored it.
+ */
+async function defaultCurrentAuthUserId(): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Seam for the engine's identity fence — injectable so tests need no Supabase. */
+export type CurrentUserIdProvider = () => Promise<string | null>;
+
 // ---------------------------------------------------------------------------
 // Backoff policy (pure, unit-testable)
 // ---------------------------------------------------------------------------
@@ -193,6 +212,12 @@ export interface SyncResult {
   acked: number;
   retryable: number;
   rejected: number;
+  /**
+   * Rows left untouched because they belong to a DIFFERENT user than the
+   * current session (or there is no session). They stay pending, un-attempted —
+   * see the identity fence in `syncNow`.
+   */
+  skipped: number;
 }
 
 export class SyncEngine {
@@ -205,6 +230,7 @@ export class SyncEngine {
     private readonly uploader: StatementUploader = supabaseUploader,
     private readonly db: Database = defaultDatabase,
     private readonly policy: BackoffPolicy = DEFAULT_BACKOFF,
+    private readonly currentUserId: CurrentUserIdProvider = defaultCurrentAuthUserId,
   ) {
     this.queue = new CompletionQueue(db);
   }
@@ -238,7 +264,13 @@ export class SyncEngine {
    * overlapping triggers (connectivity flap + manual call) don't double-upload.
    */
   async syncNow(): Promise<SyncResult> {
-    const result: SyncResult = { attempted: 0, acked: 0, retryable: 0, rejected: 0 };
+    const result: SyncResult = {
+      attempted: 0,
+      acked: 0,
+      retryable: 0,
+      rejected: 0,
+      skipped: 0,
+    };
 
     // Never sync while offline — the local store is the source of truth until we
     // reconnect. This is the local-only vs sync gate.
@@ -247,11 +279,27 @@ export class SyncEngine {
     this.running = true;
 
     try {
+      // IDENTITY FENCE (defense in depth for compliance records): resolve the
+      // CURRENT session's auth user id once per drain. The server BEFORE INSERT
+      // trigger re-stamps user_id/tenant_id from whatever session performs the
+      // upload — so a stale row authored by user A must NEVER be uploaded under
+      // user B's session, or A's completion would be recorded as B's. Sign-out
+      // wipes the store (see AuthProvider), but even if that is ever missed,
+      // this fence keeps a queued statement pinned to its author: rows whose
+      // user_id differs from the current session (or any row when there is no
+      // session) are skipped and left pending, un-attempted.
+      const currentUserId = await this.currentUserId();
+
       const pending = await this.queue.pending();
       for (const row of pending) {
         // Re-check connectivity between items: if we dropped offline mid-batch,
         // stop cleanly and leave the rest queued (never drop them).
         if (!connectivity.isOnline) break;
+
+        if (!currentUserId || row.userId !== currentUserId) {
+          result.skipped += 1;
+          continue;
+        }
 
         result.attempted += 1;
         const outcome = await this.uploadOne(row);

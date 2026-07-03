@@ -42,6 +42,7 @@ export type {
   RetryDecision,
   BackoffPolicy,
   SyncResult,
+  CurrentUserIdProvider,
 } from './sync';
 
 // Local catalog read/hydrate
