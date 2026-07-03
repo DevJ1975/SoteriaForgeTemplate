@@ -140,7 +140,7 @@ export const COMPLETION_VERB_IDS: ReadonlySet<string> = new Set([
  * disjunction is deliberate — a plain not-equals over a nullable column risks
  * excluding fresh rows (whose last_error is null) under SQL null semantics.
  */
-function uploadableClauses(): Q.Where[] {
+function uploadableClauses() {
   return [
     Q.where('synced', false),
     Q.or(Q.where('last_error', null), Q.where('last_error', Q.notEq(REJECTED_MARKER))),
