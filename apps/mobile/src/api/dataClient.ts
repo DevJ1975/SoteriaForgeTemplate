@@ -113,7 +113,7 @@ function enrollmentRowToRecord(row: EnrollmentRow): EnrollmentRecord {
  */
 export interface DataClient {
   readonly tenantId: string;
-  /** List THIS tenant's courses (RLS-scoped). */
+  /** List THIS tenant's PUBLISHED courses (RLS-scoped; see listCourses). */
   listCourses(): Promise<CourseRecord[]>;
   /** Fetch one course header by id, within this tenant (RLS-scoped). */
   getCourse(courseId: string): Promise<CourseRecord | null>;
@@ -137,9 +137,15 @@ export function getDataClient(tenantId: string): DataClient {
     async listCourses() {
       assertConfigured();
       // No tenant_id filter: RLS already constrains this to the caller's tenant.
+      //
+      // PUBLISHED ONLY: this is the LEARNER app — drafts and archived courses
+      // are authoring states that must never appear in a worker's catalog (the
+      // console is where they are managed). The status filter is a product
+      // scoping rule, not a security boundary (RLS is).
       const { data, error } = await supabase
         .from('courses')
         .select('*')
+        .eq('status', 'published')
         .order('title', { ascending: true });
       if (error) throw new Error(error.message);
       return (data ?? []).map(courseRowToRecord);

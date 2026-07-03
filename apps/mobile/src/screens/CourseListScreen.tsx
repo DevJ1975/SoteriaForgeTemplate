@@ -1,27 +1,33 @@
 /**
- * CourseListScreen — lists THIS tenant's courses.
+ * CourseListScreen — the learner's ASSIGNED training first, then the browsable
+ * published catalog.
  *
- * Data comes from `useCourses()`, which is bound to the verified tenantId and
- * (later) the offline store. This screen renders three explicit states:
- *   - loading
- *   - backendPending (backend not deployed yet — the expected state for now)
- *   - loaded list / empty
+ * Data comes from two owner/tenant-scoped hooks:
+ *   - `useCourses()` — the tenant's PUBLISHED courses (the data client filters
+ *     status server-side; drafts/archived are authoring states and never reach
+ *     a worker's device).
+ *   - `useEnrollments()` — the caller's OWN enrollments (verified session only),
+ *     whose `progress` is the server's integer percent computed from real
+ *     completion statements.
  *
- * It reads the standard hook shape so the offline agent can back `useCourses`
- * with a local WatermelonDB store without touching this file.
+ * The list is grouped into two sections:
+ *   1. "Assigned to me" — courses the learner is enrolled in, sorted overdue →
+ *      soonest due → title, each showing its REAL enrollment progress, its
+ *      enrollment status, and the due date when one is set.
+ *   2. "Course catalog" — the remaining published courses, browsable but not
+ *      yet assigned (no fake progress bar — there is no enrollment to report).
  *
- * Re-skinned on the @soteria-forge/ui kit: each course is a kit Card with a
- * status Badge, a ProgressBar of readiness, and tag Chips. Empty/loading/error
- * states use the kit Card + Button (loading = skeleton course cards). Cards
- * fade in with a light stagger (skipped under OS reduced-motion) and the list
- * supports pull-to-refresh. The FlatList, hook contract, and the tenant-scoped
- * id-based navigation are all preserved. No hardcoded brand hex.
+ * States: loading skeletons / backendPending / error / empty, with
+ * pull-to-refresh re-reading both sources. Cards fade in with a light stagger
+ * (skipped under OS reduced-motion). Navigation stays id-based and
+ * tenant-scoped (RLS resolves the id within the caller's tenant only). No
+ * hardcoded brand hex.
  */
-import { useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
-import type { CourseRecord, CourseStatus } from '@soteria-forge/shared';
+import type { CourseRecord, EnrollmentRecord } from '@soteria-forge/shared';
 import {
   Badge,
   Button,
@@ -34,20 +40,87 @@ import {
   type BadgeTone,
 } from '@soteria-forge/ui';
 import { Screen } from '../components';
-import { useCourses } from '../api';
+import { useCourses, useEnrollments } from '../api';
 
-/** Map a course lifecycle status to a kit Badge tone + label. */
-function statusBadge(status: CourseStatus): { label: string; tone: BadgeTone } {
-  switch (status) {
-    case 'published':
-      return { label: 'Active', tone: 'success' };
-    case 'draft':
-      return { label: 'Draft', tone: 'warning' };
-    case 'archived':
-      return { label: 'Archived', tone: 'neutral' };
-    default:
-      return { label: status, tone: 'neutral' };
+/** One list row: a published course, plus the caller's enrollment if assigned. */
+interface CourseListItem {
+  course: CourseRecord;
+  enrollment: EnrollmentRecord | null;
+}
+
+interface CourseSection {
+  title: string;
+  data: CourseListItem[];
+}
+
+/** Is this enrollment finished (server status or 100% progress)? */
+function isEnrollmentComplete(e: EnrollmentRecord): boolean {
+  return e.status === 'completed' || e.progress >= 100;
+}
+
+/** Is this enrollment overdue (server status, or past its due date, unfinished)? */
+function isEnrollmentOverdue(e: EnrollmentRecord, now: number): boolean {
+  if (isEnrollmentComplete(e)) return false;
+  if (e.status === 'overdue') return true;
+  return e.dueAt !== undefined && Date.parse(e.dueAt) < now;
+}
+
+/** Badge for an ASSIGNED course, from the enrollment's real state. */
+function enrollmentBadge(e: EnrollmentRecord, now: number): { label: string; tone: BadgeTone } {
+  if (isEnrollmentComplete(e)) return { label: 'Complete', tone: 'success' };
+  if (isEnrollmentOverdue(e, now)) return { label: 'Overdue', tone: 'danger' };
+  if (e.status === 'in-progress' || e.progress > 0) return { label: 'In progress', tone: 'primary' };
+  if (e.status === 'expired') return { label: 'Expired', tone: 'warning' };
+  return { label: 'Assigned', tone: 'info' };
+}
+
+/** Short human date for a due-date chip, tolerant of a missing Intl runtime. */
+function formatDueDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  try {
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return d.toDateString();
   }
+}
+
+/**
+ * Group the published catalog against the caller's enrollments. Assigned rows
+ * sort overdue first, then by soonest due date (no due date last), then title;
+ * unassigned published courses form the browsable catalog section.
+ */
+export function buildCourseSections(
+  courses: CourseRecord[],
+  enrollments: EnrollmentRecord[],
+  now: number = Date.now(),
+): CourseSection[] {
+  const enrollmentByCourse = new Map<string, EnrollmentRecord>();
+  for (const e of enrollments) enrollmentByCourse.set(e.courseId, e);
+
+  const assigned: CourseListItem[] = [];
+  const catalog: CourseListItem[] = [];
+  for (const course of courses) {
+    const enrollment = enrollmentByCourse.get(course.id) ?? null;
+    if (enrollment) assigned.push({ course, enrollment });
+    else catalog.push({ course, enrollment: null });
+  }
+
+  assigned.sort((a, b) => {
+    const ea = a.enrollment as EnrollmentRecord;
+    const eb = b.enrollment as EnrollmentRecord;
+    const overdueDelta = Number(isEnrollmentOverdue(eb, now)) - Number(isEnrollmentOverdue(ea, now));
+    if (overdueDelta !== 0) return overdueDelta;
+    const dueA = ea.dueAt !== undefined ? Date.parse(ea.dueAt) : Number.POSITIVE_INFINITY;
+    const dueB = eb.dueAt !== undefined ? Date.parse(eb.dueAt) : Number.POSITIVE_INFINITY;
+    if (dueA !== dueB) return dueA - dueB;
+    return a.course.title.localeCompare(b.course.title);
+  });
+
+  const sections: CourseSection[] = [];
+  if (assigned.length > 0) sections.push({ title: 'Assigned to me', data: assigned });
+  if (catalog.length > 0) sections.push({ title: 'Course catalog', data: catalog });
+  return sections;
 }
 
 /** One skeleton stand-in shaped like a course card (title/badge, body, bar, tags). */
@@ -74,19 +147,26 @@ export function CourseListScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const { courses, loading, backendPending, error, refetch } = useCourses();
+  const {
+    enrollments,
+    loading: enrollmentsLoading,
+    error: enrollmentsError,
+    refetch: refetchEnrollments,
+  } = useEnrollments();
 
   // Pull-to-refresh keeps the list mounted (the skeleton state below is only
-  // for the initial load); the spinner clears when the hook finishes loading.
+  // for the initial load); the spinner clears when both hooks finish loading.
   const [refreshing, setRefreshing] = useState(false);
   useEffect(() => {
-    if (!loading) setRefreshing(false);
-  }, [loading]);
-  const onRefresh = () => {
+    if (!loading && !enrollmentsLoading) setRefreshing(false);
+  }, [loading, enrollmentsLoading]);
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
     refetch();
-  };
+    refetchEnrollments();
+  }, [refetch, refetchEnrollments]);
 
-  if (loading && !refreshing) {
+  if ((loading || enrollmentsLoading) && !refreshing) {
     return (
       <Screen scroll={false}>
         <Text
@@ -108,75 +188,15 @@ export function CourseListScreen() {
     );
   }
 
-  const renderCourse = ({ item, index }: { item: CourseRecord; index: number }) => {
-    const badge = statusBadge(item.status);
-    const progress = Math.min(1, Math.max(0, item.fieldReadinessScore / 100));
+  const now = Date.now();
+  const sections = buildCourseSections(courses, enrollments, now);
+
+  const renderItem = ({ item, index }: { item: CourseListItem; index: number }) => {
     const card = (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${item.title}, ${badge.label}, ${Math.round(progress * 100)} percent complete`}
-        onPress={() => router.push({ pathname: '/(app)/course/[id]', params: { id: item.id } })}
-        style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
-      >
-        <Card>
-          <View style={styles.cardHeader}>
-            <Text
-              numberOfLines={2}
-              style={{
-                flex: 1,
-                color: theme.colors.text,
-                fontFamily: theme.fonts.display,
-                fontWeight: '600',
-                fontSize: 19,
-              }}
-            >
-              {item.title}
-            </Text>
-            <Badge label={badge.label} tone={badge.tone} />
-          </View>
-
-          {item.description ? (
-            <Text
-              numberOfLines={2}
-              style={{
-                color: theme.colors.textMuted,
-                fontFamily: theme.fonts.body,
-                fontSize: 14,
-                marginTop: 6,
-                lineHeight: 20,
-              }}
-            >
-              {item.description}
-            </Text>
-          ) : null}
-
-          <View style={styles.progressRow}>
-            <ProgressBar value={progress} style={{ flex: 1 }} />
-            <Text
-              style={{
-                color: theme.colors.textMuted,
-                fontFamily: theme.fonts.display,
-                fontWeight: '600',
-                fontSize: 13,
-                width: 40,
-                textAlign: 'right',
-              }}
-            >
-              {Math.round(progress * 100)}%
-            </Text>
-          </View>
-
-          {item.tags.length > 0 ? (
-            <View style={styles.tagRow}>
-              {item.tags.slice(0, 4).map((tag) => (
-                <Chip key={tag} label={tag} />
-              ))}
-            </View>
-          ) : null}
-        </Card>
-      </Pressable>
+      <CourseCard item={item} now={now} onPress={() =>
+        router.push({ pathname: '/(app)/course/[id]', params: { id: item.course.id } })
+      } />
     );
-
     // Staggered fade-in on first appearance — skipped entirely under OS
     // reduced-motion (no entering animation at all).
     if (reducedMotion) return card;
@@ -203,25 +223,62 @@ export function CourseListScreen() {
           title="Couldn't load courses"
           body={error}
           actionLabel="Retry"
-          onAction={refetch}
+          onAction={onRefresh}
         />
       ) : backendPending ? (
         <EmptyState
           title="Backend not configured"
           body="Course data appears once the app is configured with EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY — copy .env.example and restart."
         />
-      ) : courses.length === 0 ? (
+      ) : sections.length === 0 ? (
         <EmptyState
           title="No courses yet"
-          body="No training has been assigned to your organization yet."
+          body="No published training is available to your organization yet."
         />
       ) : (
-        <FlatList
-          data={courses}
-          keyExtractor={(c) => c.id}
-          renderItem={renderCourse}
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.course.id}
+          renderItem={renderItem}
+          renderSectionHeader={({ section }) => (
+            <Text
+              style={{
+                color: theme.colors.textMuted,
+                fontFamily: theme.fonts.display,
+                fontWeight: '700',
+                fontSize: 12,
+                letterSpacing: 3,
+                textTransform: 'uppercase',
+                paddingTop: 14,
+                paddingBottom: 10,
+                backgroundColor: theme.colors.bg,
+              }}
+            >
+              {section.title}
+            </Text>
+          )}
+          ListHeaderComponent={
+            // Enrollments failing while the catalog loaded must not blank the
+            // screen — but silently showing an empty "Assigned" grouping would
+            // mislead, so surface the partial failure inline.
+            enrollmentsError ? (
+              <Card style={{ marginTop: 4 }}>
+                <Text
+                  style={{
+                    color: theme.colors.danger,
+                    fontFamily: theme.fonts.body,
+                    fontSize: 13,
+                    lineHeight: 19,
+                  }}
+                >
+                  Couldn’t load your assignments — pull to retry. Showing the catalog only.
+                </Text>
+              </Card>
+            ) : null
+          }
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           contentContainerStyle={{ paddingTop: 4, paddingBottom: 32 }}
+          stickySectionHeadersEnabled={false}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -234,6 +291,120 @@ export function CourseListScreen() {
         />
       )}
     </Screen>
+  );
+}
+
+/**
+ * One course card. Assigned courses show the enrollment's REAL progress
+ * percent, its status badge, and the due date when set; catalog courses show a
+ * browsable header with no progress claim (there is no enrollment to report).
+ */
+function CourseCard({
+  item,
+  now,
+  onPress,
+}: {
+  item: CourseListItem;
+  now: number;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const { course, enrollment } = item;
+  const badge = enrollment
+    ? enrollmentBadge(enrollment, now)
+    : { label: 'Available', tone: 'neutral' as BadgeTone };
+  // UNITS: enrollment.progress is the server's INTEGER PERCENT (0–100);
+  // ProgressBar takes the app-internal 0–1 fraction.
+  const progress = enrollment ? Math.min(1, Math.max(0, enrollment.progress / 100)) : null;
+  const overdue = enrollment ? isEnrollmentOverdue(enrollment, now) : false;
+
+  const a11yLabel = enrollment
+    ? `${course.title}, ${badge.label}, ${Math.round((progress ?? 0) * 100)} percent complete${
+        enrollment.dueAt !== undefined ? `, due ${formatDueDate(enrollment.dueAt)}` : ''
+      }`
+    : `${course.title}, available in the catalog`;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={a11yLabel}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1 })}
+    >
+      <Card>
+        <View style={styles.cardHeader}>
+          <Text
+            numberOfLines={2}
+            style={{
+              flex: 1,
+              color: theme.colors.text,
+              fontFamily: theme.fonts.display,
+              fontWeight: '600',
+              fontSize: 19,
+            }}
+          >
+            {course.title}
+          </Text>
+          <Badge label={badge.label} tone={badge.tone} />
+        </View>
+
+        {course.description ? (
+          <Text
+            numberOfLines={2}
+            style={{
+              color: theme.colors.textMuted,
+              fontFamily: theme.fonts.body,
+              fontSize: 14,
+              marginTop: 6,
+              lineHeight: 20,
+            }}
+          >
+            {course.description}
+          </Text>
+        ) : null}
+
+        {enrollment && progress !== null ? (
+          <>
+            <View style={styles.progressRow}>
+              <ProgressBar value={progress} style={{ flex: 1 }} />
+              <Text
+                style={{
+                  color: theme.colors.textMuted,
+                  fontFamily: theme.fonts.display,
+                  fontWeight: '600',
+                  fontSize: 13,
+                  width: 40,
+                  textAlign: 'right',
+                }}
+              >
+                {Math.round(progress * 100)}%
+              </Text>
+            </View>
+            {enrollment.dueAt !== undefined ? (
+              <Text
+                style={{
+                  color: overdue ? theme.colors.danger : theme.colors.textMuted,
+                  fontFamily: theme.fonts.body,
+                  fontSize: 12.5,
+                  marginTop: 8,
+                }}
+              >
+                {overdue ? 'Was due ' : 'Due '}
+                {formatDueDate(enrollment.dueAt)}
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+
+        {course.tags.length > 0 ? (
+          <View style={styles.tagRow}>
+            {course.tags.slice(0, 4).map((tag) => (
+              <Chip key={tag} label={tag} />
+            ))}
+          </View>
+        ) : null}
+      </Card>
+    </Pressable>
   );
 }
 
