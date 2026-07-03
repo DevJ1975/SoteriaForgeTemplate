@@ -9,7 +9,7 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test \".test-dist/src/**/*.test.js\"",
+    "test": "if [ -e ../../node_modules/expo/tsconfig.base.json ] || [ -e node_modules/expo/tsconfig.base.json ]; then tsc -p tsconfig.test.json && node --test \".test-dist/src/**/*.test.js\"; else echo 'mobile: dependencies not installed — tests run in CI / after npm install'; fi",
     "lint": "expo lint",
     "eas-build-post-install": "npm run build --workspace @soteria-forge/shared --prefix ../.."
   },
