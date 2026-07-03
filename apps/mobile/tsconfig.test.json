@@ -1,0 +1,20 @@
+{
+  // Tests-only compile (mirrors packages/shared's approach): seed the program
+  // with the __tests__ files; tsc pulls in their transitive imports (the
+  // node-safe modules under test) and emits CommonJS to .test-dist, which
+  // `node --test` runs directly. Only NODE-SAFE modules may enter this graph —
+  // anything importing react-native / expo-* / ../db belongs behind the
+  // injected seams (see offline/singletons.ts). CommonJS + Node 22's
+  // require(esm) lets the emitted tests load @soteria-forge/shared's ESM dist.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": ".test-dist",
+    "rootDir": "."
+  },
+  "include": ["src/**/__tests__/**/*.test.ts"]
+}

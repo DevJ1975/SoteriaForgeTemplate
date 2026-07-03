@@ -86,11 +86,14 @@ export const database: Database = new Proxy({} as Database, {
 });
 
 /**
- * Wipe the local store. Called on sign-out so a device never retains one
- * identity's cached tenant data after a different user signs in. This unsafely
- * resets ALL tables including the completion_statements outbox, so it must only
- * be called when that queue is known-empty (fully synced) or intentionally
- * discarded — the OfflineProvider drains sync before invoking it.
+ * Wipe the local store. Called on sign-out (AuthProvider.signOut) so a device
+ * never retains one identity's cached tenant data after a different user signs
+ * in. This unsafely resets ALL tables including the completion_statements
+ * outbox, so it must only be called when that queue is known-empty (fully
+ * synced) or intentionally discarded — AuthProvider attempts a time-bounded
+ * `syncEngine.syncNow()` drain immediately before invoking it, and the sync
+ * engine's identity fence guarantees any row that survives a missed wipe can
+ * never be uploaded under a different user's session.
  */
 export async function resetDatabase(): Promise<void> {
   await database.write(async () => {

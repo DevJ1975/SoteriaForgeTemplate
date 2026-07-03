@@ -21,8 +21,7 @@
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { connectivity, useConnectivitySnapshot } from './netinfo';
-import { completionQueue } from './queue';
-import { syncEngine } from './sync';
+import { completionQueue, syncEngine } from './singletons';
 
 export interface OfflineContextValue {
   /** Reachability, derived from NetInfo (see netinfo.ts). */
@@ -53,10 +52,22 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   // new count whenever a statement is enqueued or marked synced). Guarded so an
   // unopenable store (e.g. the native SQLite module missing in a non-dev-client
   // context) degrades to "0 pending" instead of crashing the app.
+  //
+  // This observer is ALSO the immediate-sync kick: the engine otherwise drains
+  // only on connectivity TRANSITIONS and backoff retries, so a statement
+  // enqueued while the device is steadily online would sit locally until a
+  // network flap or an app restart. Whenever the pending count is non-zero we
+  // fire-and-forget a drain — `syncNow()` is connectivity-gated (a no-op while
+  // offline) and concurrency-guarded (a no-op while a drain is in flight), so
+  // this is safe to call on every emission and covers EVERY enqueue site
+  // without coupling the queue to the engine.
   useEffect(() => {
     try {
       const subscription = completionQueue.observePendingCount().subscribe({
-        next: (count) => setPendingSyncCount(count),
+        next: (count) => {
+          setPendingSyncCount(count);
+          if (count > 0) void syncEngine.syncNow();
+        },
         error: () => setPendingSyncCount(0),
       });
       return () => subscription.unsubscribe();

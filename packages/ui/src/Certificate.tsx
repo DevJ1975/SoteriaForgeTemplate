@@ -90,14 +90,22 @@ export function Certificate({
       <Text style={{ fontFamily: D, fontWeight: '600', fontSize: 19, color: '#1A1D22', marginTop: 4 }}>{v}</Text>
     </View>
   );
-  const Sig = ({ name, title }: { name: string; title: string }) => (
+  const Sig = ({ name, title }: { name: string; title: string }) => {
+    // "Jane Doe" → "J. Doe" (initial of the first name + the last name). Guard
+    // the indexed reads: `split` never returns an empty array, but under
+    // `noUncheckedIndexedAccess` each element is `string | undefined`.
+    const parts = name.split(' ');
+    const initial = (parts[0] ?? '').charAt(0);
+    const surname = parts[parts.length - 1] ?? '';
+    return (
     <View style={{ width: 250, alignItems: 'center' }}>
-      <Text style={{ fontFamily: D, fontWeight: '500', fontSize: 22, fontStyle: 'italic', color: '#1A1D22' }}>{name.split(' ')[0][0]}. {name.split(' ').slice(-1)[0]}</Text>
+      <Text style={{ fontFamily: D, fontWeight: '500', fontSize: 22, fontStyle: 'italic', color: '#1A1D22' }}>{initial}. {surname}</Text>
       <View style={{ height: 1.5, alignSelf: 'stretch', backgroundColor: '#1A1D22', marginTop: 4, marginBottom: 7 }} />
       <Text style={{ fontFamily: t.fonts.body, fontWeight: '600', fontSize: 13, color: '#1A1D22' }}>{name}</Text>
       <Text style={{ fontFamily: t.fonts.body, fontSize: 11.5, color: '#8A8579' }}>{title}</Text>
     </View>
-  );
+    );
+  };
 
   return (
     <ScaledSurface baseWidth={1056} baseHeight={816} style={style}>

@@ -6,12 +6,13 @@
  * tenancy. Groups drive which affordances show (e.g. supervisors get a team
  * entry point) — again straight from the token claim.
  *
- * Re-skinned on the @soteria-forge/ui kit: an Avatar + greeting header, a row of
- * StatTile KPIs (assigned / complete / overdue), a ProgressBar of overall
- * readiness, and AchievementBadges for the learner's streak/certification. KPIs
- * derive from the tenant-scoped `useCourses()` hook — the SAME data the course
- * list reads, so nothing here invents cross-tenant numbers. Colour/type come
- * from useTheme() tokens; no hardcoded brand hex.
+ * HONEST KPIs: assigned / complete / overdue and the overall-readiness bar all
+ * derive from the learner's OWN enrollments (`useEnrollments`), whose
+ * `progress` is computed server-side from their real completion statements —
+ * never from `course.fieldReadinessScore`, which is a static authoring-time
+ * field (a fresh worker must read 0%, not the catalog's ambition). Achievement
+ * badges are likewise derived from those same numbers — nothing decorative is
+ * hardcoded. Colour/type come from useTheme() tokens; no hardcoded brand hex.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -30,20 +31,21 @@ import {
 } from '@soteria-forge/ui';
 import { AppearanceToggle, Screen } from '../components';
 import { useAuth } from '../auth';
-import { useCourses, useCertificates } from '../api';
+import { useEnrollments, useCertificates } from '../api';
+import { isEnrollmentComplete, isEnrollmentOverdue } from './courseSections';
 
 export function HomeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { user, signOut } = useAuth();
-  // Tenant-scoped by construction (bound to the verified tenantId inside the
-  // hook). Drives the readiness KPIs below.
+  // The learner's OWN enrollments (RLS-scoped, owner-narrowed via the verified
+  // session). Drives every KPI below with real progress numbers.
   const {
-    courses,
+    enrollments,
     backendPending,
-    loading: coursesLoading,
-    refetch: refetchCourses,
-  } = useCourses();
+    loading: enrollmentsLoading,
+    refetch: refetchEnrollments,
+  } = useEnrollments();
   // The learner's earned certificates (RLS-scoped, owner-only) — drives the
   // "My Certificates" Home affordance count.
   const {
@@ -52,17 +54,17 @@ export function HomeScreen() {
     refetch: refetchCertificates,
   } = useCertificates();
 
-  // Pull-to-refresh re-reads both tenant-scoped sources; the spinner clears
+  // Pull-to-refresh re-reads both owner-scoped sources; the spinner clears
   // once both hooks settle.
   const [refreshing, setRefreshing] = useState(false);
   useEffect(() => {
-    if (!coursesLoading && !certificatesLoading) setRefreshing(false);
-  }, [coursesLoading, certificatesLoading]);
+    if (!enrollmentsLoading && !certificatesLoading) setRefreshing(false);
+  }, [enrollmentsLoading, certificatesLoading]);
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    refetchCourses();
+    refetchEnrollments();
     refetchCertificates();
-  }, [refetchCourses, refetchCertificates]);
+  }, [refetchEnrollments, refetchCertificates]);
 
   if (!user) return null;
 
@@ -70,23 +72,18 @@ export function HomeScreen() {
   const firstName = displayName.split(' ')[0];
   const isSupervisor = hasMinimumGroup(user.groups, 'supervisor');
 
-  // Overall readiness across this tenant's catalog. Until enrollment data is
-  // wired we derive readiness from the course fieldReadinessScore (0..100);
-  // with no courses yet (backend undeployed) everything reads as zero rather
-  // than faking progress.
-  // "assigned / complete / in-progress" KPIs. We intentionally show in-progress
-  // rather than "overdue": overdue requires per-enrollment due dates, which the
-  // header-only course record doesn't carry — surfacing a fake overdue count
-  // would be misleading. Swap this third tile to overdue once enrollment
-  // dueAt/status is wired through the data client.
-  const assigned = courses.length;
-  const complete = courses.filter((c) => c.fieldReadinessScore >= 100).length;
-  const inProgress = courses.filter(
-    (c) => c.fieldReadinessScore > 0 && c.fieldReadinessScore < 100,
-  ).length;
+  // "assigned / complete / overdue" from the caller's real enrollments.
+  // UNITS: enrollment.progress is the server's INTEGER PERCENT (0–100); the
+  // ProgressBar takes the app-internal 0–1 fraction, so we divide by 100 here.
+  // Complete/overdue use the SAME predicates as the course list
+  // (./courseSections) so the KPIs and the list badges can never disagree.
+  const now = Date.now();
+  const assigned = enrollments.length;
+  const complete = enrollments.filter(isEnrollmentComplete).length;
+  const overdue = enrollments.filter((e) => isEnrollmentOverdue(e, now)).length;
   const readiness =
     assigned > 0
-      ? courses.reduce((sum, c) => sum + Math.min(100, Math.max(0, c.fieldReadinessScore)), 0) /
+      ? enrollments.reduce((sum, e) => sum + Math.min(100, Math.max(0, e.progress)), 0) /
         assigned /
         100
       : 0;
@@ -125,16 +122,16 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {/* KPI row — assigned / complete / in-progress for THIS tenant. Grouped
+      {/* KPI row — the learner's own assigned / complete / overdue. Grouped
           for screen readers: one focusable summary instead of three stops. */}
       <View
         accessible
-        accessibilityLabel={`Training summary: ${assigned} assigned, ${complete} complete, ${inProgress} in progress`}
+        accessibilityLabel={`Training summary: ${assigned} assigned, ${complete} complete, ${overdue} overdue`}
         style={styles.kpiRow}
       >
         <StatTile value={assigned} label="Assigned" />
         <StatTile value={complete} label="Complete" accent={theme.colors.success} />
-        <StatTile value={inProgress} label="In progress" accent={theme.colors.warning} />
+        <StatTile value={overdue} label="Overdue" accent={theme.colors.warning} />
       </View>
 
       {/* Overall readiness */}
@@ -173,8 +170,8 @@ export function HomeScreen() {
           {backendPending
             ? 'Your field-readiness score appears once your organization’s training is deployed.'
             : assigned === 0
-              ? 'No training has been assigned to your organization yet.'
-              : 'Keep going — finish your assigned modules to reach full field readiness.'}
+              ? 'No training has been assigned to you yet.'
+              : 'Keep going — finish your assigned training to reach full field readiness.'}
         </Text>
         <Divider spacing={16} />
         <Button
@@ -184,7 +181,9 @@ export function HomeScreen() {
         />
       </Card>
 
-      {/* Achievements */}
+      {/* Achievements — every badge is DERIVED from the learner's real
+          enrollment numbers above (the decorative hardcoded streak is gone:
+          the app tracks no daily-activity data, so it must not claim one). */}
       <Text
         style={{
           color: theme.colors.textMuted,
@@ -202,8 +201,11 @@ export function HomeScreen() {
           icon="flame"
           shape="shield"
           size={92}
-          label="7-Day Streak"
-          sublabel="On-shift daily"
+          locked={complete === 0 && readinessPct === 0}
+          label="First Spark"
+          sublabel={
+            complete === 0 && readinessPct === 0 ? 'Start a lesson' : 'Training started'
+          }
         />
         <AchievementBadge
           tier="gold"

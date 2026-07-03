@@ -23,14 +23,17 @@ export { connectivity, useConnectivitySnapshot } from './netinfo';
 export type { ConnectivitySnapshot } from './netinfo';
 
 // Append-only completion-statement queue
-export { completionQueue, CompletionQueue, toCompletionRow } from './queue';
+export {
+  CompletionQueue,
+  toCompletionRow,
+  REJECTED_MARKER,
+  COMPLETION_VERB_IDS,
+} from './queue';
 export type { EnqueueCompletionInput, CompletionRowFields } from './queue';
 
 // Sync engine (idempotent, backoff, never drops the queue)
 export {
-  syncEngine,
   SyncEngine,
-  supabaseUploader,
   backoffDelayMs,
   decideNext,
   DEFAULT_BACKOFF,
@@ -42,10 +45,29 @@ export type {
   RetryDecision,
   BackoffPolicy,
   SyncResult,
+  CurrentUserIdProvider,
+  ConnectivityLike,
+  SyncEngineDeps,
 } from './sync';
 
-// Local catalog read/hydrate
-export { localCourseStore, LocalCourseStore, courseModelToRecord } from './localStore';
+// Supabase transport (the one place a queued statement meets the network)
+export { supabaseUploader, currentAuthUserId } from './transport';
+
+// App-wide singletons: node-safe logic bound to the native runtime deps
+export { completionQueue, syncEngine } from './singletons';
+
+// Local catalog read/hydrate (course list + full course-tree snapshots)
+export {
+  localCourseStore,
+  LocalCourseStore,
+  courseModelToRecord,
+  enrollmentModelToRecord,
+} from './localStore';
+export type { CachedCourseTree, CourseTreeHydrationInput } from './localStore';
+
+// Per-lesson quiz scratch state (resume + idempotent re-submit)
+export { quizStateStore, QuizStateStore } from './quizStore';
+export type { QuizStateSnapshot, QuizIdentity } from './quizStore';
 
 // Offline video download scaffold
 export { VideoDownloader } from './video';

@@ -34,3 +34,6 @@ yarn-error.*
 
 # macOS
 .DS_Store
+
+# Unit-test compile output (npm run test)
+.test-dist/

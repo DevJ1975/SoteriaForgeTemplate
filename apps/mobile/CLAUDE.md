@@ -95,8 +95,31 @@ data.
 
 ```bash
 npm --workspace @soteria-forge/mobile run typecheck   # tsc --noEmit (needs shared + ui built first)
+npm --workspace @soteria-forge/mobile run test        # unit tests (node:test; see below)
 npm --workspace @soteria-forge/mobile run start        # Metro (dev client) — after a native build exists
 ```
+
+### Unit tests (`npm run test`)
+
+Zero-dependency, same pattern as `packages/shared`: `tsconfig.test.json` seeds
+tsc with `src/**/__tests__/**/*.test.ts`, pulls in their transitive imports,
+and emits CommonJS to `.test-dist/` (git-ignored), which `node --test` runs
+directly (Node ≥ 22.12 — the emitted CJS `require()`s shared's ESM dist).
+
+**Only NODE-SAFE modules may enter the test import graph** — nothing that
+imports `react-native`, `expo-*`, `@react-native-community/netinfo`, or
+`../db` (the native SQLite adapter). The offline/auth layers are structured
+for this: pure logic (`offline/queue.ts`, `offline/sync.ts`,
+`supabase/chunkedSecureStorage.ts`, `auth/profileCacheCore.ts`,
+`screens/courseSections.ts`, `api/lessonContent.ts`) takes its runtime
+dependencies by INJECTION, and the native bindings live in
+`offline/transport.ts`, `offline/singletons.ts`, and the thin
+`secureSessionStorage.ts` / `profileCache.ts` wrappers. Test fakes:
+`offline/__tests__/fakeDb.ts` interprets real WatermelonDB `Q` clauses (with
+SQL null semantics) so the production query paths run unmodified; keystore
+tests inject an in-memory `AsyncKeyValueStore` (`src/lib/secureStore.ts`).
+Keep new tests importing the specific module under test — never the
+`../offline` barrel (it drags in the native bindings).
 
 - Do NOT `npm install`, `prebuild`, run native/EAS builds, or create Expo resources.
 - `.env` holds the **client-safe** Supabase URL + publishable/anon key (RLS-protected) plus

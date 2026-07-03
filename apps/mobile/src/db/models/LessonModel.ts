@@ -22,5 +22,17 @@ export class LessonModel extends Model {
   @field('required') required!: boolean;
   @field('passing_score') passingScore?: number;
   @text('video_id') videoId?: string;
+  /** JSON-encoded `lessons.content` — cached so lessons render/score offline. */
+  @text('content_json') contentJson?: string;
   @text('server_updated_at') serverUpdatedAt!: string;
+
+  /** Decoded content value. Never throws — corrupt cache degrades to undefined. */
+  get content(): unknown {
+    if (!this.contentJson) return undefined;
+    try {
+      return JSON.parse(this.contentJson) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
 }

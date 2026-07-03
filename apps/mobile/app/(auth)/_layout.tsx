@@ -1,7 +1,7 @@
 /**
- * Auth group layout — the signed-out stack. A plain headerless Stack; the only
- * route today is sign-in. (Sign-up is invite/admin-driven, and enterprise SSO is
- * deferred, so no self-service registration route exists yet.)
+ * Auth group layout — the signed-out stack. A plain headerless Stack; routes
+ * today are sign-in and forgot-password. (Sign-up is invite/admin-driven, and
+ * enterprise SSO is deferred, so no self-service registration route exists yet.)
  */
 import { Stack } from 'expo-router';
 

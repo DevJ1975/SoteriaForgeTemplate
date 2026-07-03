@@ -23,8 +23,12 @@
  *     navigate back so the course detail re-reads the local outbox and advances
  *     its progress bar without waiting for the network.
  *
- * Rendering is a themed placeholder body (video = a play surface + description;
- * reflection/quiz/document = the description + a prompt). No hardcoded brand hex.
+ * RENDERING: video = a play surface + description; document/reflection (and any
+ * lesson with authored `content.body`) render their body text; a quiz lesson
+ * with authored questions mounts the full QuizPlayer flow (answer → local score
+ * → passing-score enforcement → verb `passed`/`failed` with result.score,
+ * instead of a blind `completed`). Lessons with no authored content keep the
+ * description + mark-complete fallback. No hardcoded brand hex.
  */
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -37,7 +41,7 @@ import {
   type XapiObject,
 } from '@soteria-forge/shared';
 import { Badge, Button, Card, Chip, Divider, Skeleton, useTheme, useToast } from '@soteria-forge/ui';
-import { Screen } from '../components';
+import { QuizPlayer, Screen } from '../components';
 import { useAuth } from '../auth';
 import { useLesson, useLessonVideo, type LessonDetail } from '../api';
 import { completionQueue, useConnectivityOptional } from '../offline';
@@ -147,6 +151,10 @@ export function LessonPlayerScreen() {
 
   const isComplete = lesson.completed || justCompleted;
   const copy = bodyCopy(lesson.kind);
+  // A quiz lesson with AUTHORED questions gets the real quiz flow (QuizPlayer
+  // emits passed/failed with a score); one without any renderable questions
+  // keeps the mark-complete fallback so legacy/empty content stays completable.
+  const hasQuiz = lesson.kind === 'quiz' && lesson.content.questions.length > 0;
 
   const onMarkComplete = async () => {
     // Guard: identity MUST come from the verified session, never route input.
@@ -275,7 +283,7 @@ export function LessonPlayerScreen() {
           >
             {lesson.description}
           </Text>
-        ) : (
+        ) : !lesson.content.body ? (
           <Text
             style={{
               color: theme.colors.textMuted,
@@ -286,33 +294,62 @@ export function LessonPlayerScreen() {
           >
             No description for this lesson yet.
           </Text>
-        )}
+        ) : null}
 
-        <Divider spacing={14} />
+        {/* Authored long-form content (lessons.content.body) — the document /
+            reflection material itself, rendered after the short description. */}
+        {lesson.content.body ? (
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontFamily: theme.fonts.body,
+              fontSize: 15,
+              lineHeight: 23,
+              marginTop: lesson.description ? 12 : 0,
+            }}
+          >
+            {lesson.content.body}
+          </Text>
+        ) : null}
 
-        <Text
-          style={{
-            color: theme.colors.textMuted,
-            fontFamily: theme.fonts.body,
-            fontSize: 14,
-            lineHeight: 20,
-          }}
-        >
-          {copy.prompt}
-        </Text>
+        {/* The generic "then mark complete" prompt only applies to the
+            mark-complete flow; the quiz explains itself. */}
+        {!hasQuiz ? (
+          <>
+            <Divider spacing={14} />
+            <Text
+              style={{
+                color: theme.colors.textMuted,
+                fontFamily: theme.fonts.body,
+                fontSize: 14,
+                lineHeight: 20,
+              }}
+            >
+              {copy.prompt}
+            </Text>
+          </>
+        ) : null}
       </Card>
 
-      {submitError ? (
-        <Notice tone="danger" text={submitError} />
-      ) : null}
+      {hasQuiz ? (
+        <QuizPlayer
+          lesson={lesson}
+          alreadyCompleted={isComplete}
+          onExit={() => router.back()}
+        />
+      ) : (
+        <>
+          {submitError ? <Notice tone="danger" text={submitError} /> : null}
 
-      <Button
-        title={isComplete ? 'Completed' : 'Mark complete'}
-        fullWidth
-        disabled={isComplete}
-        loading={submitting}
-        onPress={onMarkComplete}
-      />
+          <Button
+            title={isComplete ? 'Completed' : 'Mark complete'}
+            fullWidth
+            disabled={isComplete}
+            loading={submitting}
+            onPress={onMarkComplete}
+          />
+        </>
+      )}
     </Screen>
   );
 }

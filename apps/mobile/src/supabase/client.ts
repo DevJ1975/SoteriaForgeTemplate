@@ -19,16 +19,20 @@
  * secret and is meant to ship in the app. The SERVICE ROLE key must NEVER appear
  * in this (or any) client bundle; it bypasses RLS and belongs only server-side.
  *
- * SESSION: sessions persist in AsyncStorage and auto-refresh. `detectSessionInUrl`
- * is off because there is no browser URL to parse on React Native. The WHATWG URL
- * polyfill (`react-native-url-polyfill/auto`) is required by supabase-js's fetch
- * layer on RN and is imported first here (also loaded app-wide in index.ts).
+ * SESSION: sessions persist in the OS keystore via `secureSessionStorage`
+ * (expo-secure-store, chunked past the 2 KB Android limit) — the refresh token
+ * is a long-lived credential and never sits in plaintext AsyncStorage — and
+ * auto-refresh. `detectSessionInUrl` is off because there is no browser URL to
+ * parse on React Native. The WHATWG URL polyfill (`react-native-url-polyfill/auto`)
+ * is required by supabase-js's fetch layer on RN and is imported first here
+ * (also loaded app-wide in index.ts).
  */
 import 'react-native-url-polyfill/auto';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import Constants from 'expo-constants';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@soteria-forge/shared/supabase';
+import { secureSessionStorage } from './secureSessionStorage';
 
 /**
  * Resolve a config value from EXPO_PUBLIC_* env (inlined by the Expo/Metro
@@ -55,8 +59,9 @@ export const isSupabaseConfigured: boolean =
   typeof SUPABASE_URL === 'string' && typeof SUPABASE_ANON_KEY === 'string';
 
 const authOptions = {
-  // Persist the session across launches in device storage.
-  storage: AsyncStorage,
+  // Persist the session across launches in the OS keystore (Keychain/Keystore),
+  // chunked to respect SecureStore's 2 KB per-value limit.
+  storage: secureSessionStorage,
   persistSession: true,
   // Silently refresh the access token before it expires so long-lived offline
   // sessions reconnect cleanly.
@@ -85,4 +90,23 @@ if (!isSupabaseConfigured && __DEV__) {
       'copy apps/mobile/.env.example to .env and fill them in. The app boots, but every ' +
       'backend call will fail until the client is configured.',
   );
+}
+
+// AUTO-REFRESH ↔ APP LIFECYCLE (the documented supabase-js React Native
+// pattern): on RN there is no browser tab visibility, so supabase-js must be
+// told when the app is foregrounded/backgrounded. While active, the refresh
+// timer keeps the access token fresh (so a worker returning from hours in the
+// field doesn't hit an expired-JWT failure on their first sync); while
+// backgrounded the timer stops — the OS would throttle it anyway, and a
+// suspended ticker just drains battery. The listener lives here, next to the
+// client it controls, for the app's whole lifetime (never unsubscribed by
+// design — the client is a module singleton).
+if (isSupabaseConfigured) {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      supabase.auth.startAutoRefresh();
+    } else {
+      supabase.auth.stopAutoRefresh();
+    }
+  });
 }

@@ -7,6 +7,8 @@ export { OfflineBanner } from './OfflineBanner';
 export { AppearanceToggle } from './AppearanceToggle';
 export { CertificateView } from './CertificateView';
 export type { CertificateViewProps } from './CertificateView';
+export { QuizPlayer } from './QuizPlayer';
+export type { QuizPlayerProps } from './QuizPlayer';
 /**
  * Back-compat: the banner's connectivity shape now lives in the offline layer
  * (OfflineContextValue). Re-exported here under the original `Connectivity` name

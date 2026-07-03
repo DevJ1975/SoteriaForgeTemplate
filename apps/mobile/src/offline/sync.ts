@@ -34,12 +34,14 @@
 import type { Database } from '@nozbe/watermelondb';
 import type { XapiStatement } from '@soteria-forge/shared';
 import { statementIdempotencyKey } from '@soteria-forge/shared';
-import { database as defaultDatabase } from '../db';
-import { CompletionQueue } from './queue';
+import { CompletionQueue, REJECTED_MARKER } from './queue';
 import type { CompletionStatementModel } from '../db/models';
-import { connectivity } from './netinfo';
-import { supabase, isSupabaseConfigured } from '../supabase';
-import type { Json, TablesInsert } from '@soteria-forge/shared/supabase';
+
+// NOTE: this module is deliberately NODE-SAFE (no import of `../db`,
+// `../supabase`, or `./netinfo`, all of which need a native runtime): every
+// dependency is INJECTED via SyncEngineDeps. The Supabase transport lives in
+// `./transport.ts` and the app-wide `syncEngine` singleton binding in
+// `./singletons.ts`; unit tests inject fakes for all of it.
 
 // ---------------------------------------------------------------------------
 // Transport seam
@@ -82,56 +84,18 @@ export type StatementUploader = (
   ctx: UploadContext,
 ) => Promise<UploadOutcome>;
 
+/** Seam for the engine's identity fence — injectable so tests need no Supabase. */
+export type CurrentUserIdProvider = () => Promise<string | null>;
+
 /**
- * Classify a PostgREST error code into a retry outcome.
- *
- * Auth/RLS refusals (permission denied, RLS violation) are permanent → 'rejected'.
- * Everything else (network already handled by the throw path, transient 5xx) is
- * treated as retryable so the durable queue simply drains later.
+ * The connectivity surface the engine needs — satisfied by the app's
+ * ConnectivityService (`./netinfo`) and by a plain fake in tests.
  */
-function outcomeForPostgrestCode(code: string | undefined): UploadOutcome {
-  // 42501 = insufficient_privilege, 42P17 = RLS recursion; PGRST301 = JWT/permission.
-  if (code === '42501' || code === '42P17' || code === 'PGRST301') return 'rejected';
-  return 'retryable';
+export interface ConnectivityLike {
+  readonly isOnline: boolean;
+  /** Subscribe to connectivity changes; returns an unsubscribe fn. */
+  subscribe(listener: (snap: { isOnline: boolean }) => void): () => void;
 }
-
-/**
- * The default transport: upsert into `completion_statements`, ignoring duplicates
- * by the client UUID. Append-only + idempotent, exactly as the queue guarantees.
- */
-export const supabaseUploader: StatementUploader = async (statement, ctx) => {
-  if (!isSupabaseConfigured) {
-    // No configured backend → treat as retryable so the outbox accumulates and
-    // drains once credentials exist, just like being offline.
-    return 'retryable';
-  }
-
-  // The xAPI actor/verb/object/result/context are plain JSON-serializable values;
-  // they land in `jsonb` columns typed as `Json`. Cast at this single boundary so
-  // the structured xAPI types meet the generated column type cleanly.
-  const row: TablesInsert<'completion_statements'> = {
-    id: statement.id, // client UUID = idempotency key = primary key
-    // tenant_id is re-stamped server-side from the auth context by a BEFORE
-    // INSERT trigger; we pass the statement's own tenantId (itself derived from
-    // the verified profile) only to satisfy the column shape.
-    tenant_id: statement.tenantId,
-    user_id: ctx.userId,
-    actor: statement.actor as Json,
-    verb: statement.verb as Json,
-    object: statement.object as Json,
-    result: (statement.result ?? null) as Json | null,
-    context: (statement.context ?? null) as Json | null,
-    // `timestamp` is the xAPI ACTIVITY time; the table stores it as occurred_at.
-    occurred_at: statement.timestamp,
-  };
-
-  const { error } = await supabase
-    .from('completion_statements')
-    .upsert([row], { onConflict: 'id', ignoreDuplicates: true });
-
-  if (!error) return 'acked';
-  return outcomeForPostgrestCode(error.code);
-};
 
 // ---------------------------------------------------------------------------
 // Backoff policy (pure, unit-testable)
@@ -193,20 +157,46 @@ export interface SyncResult {
   acked: number;
   retryable: number;
   rejected: number;
+  /**
+   * Rows left untouched because they belong to a DIFFERENT user than the
+   * current session (or there is no session). They stay pending, un-attempted —
+   * see the identity fence in `syncNow`.
+   */
+  skipped: number;
+}
+
+/** Everything the engine talks to — injected so the engine itself is pure logic. */
+export interface SyncEngineDeps {
+  /** Transport that attempts one statement (the app binds the Supabase upsert). */
+  uploader: StatementUploader;
+  /** The local outbox database (the app binds the SQLite singleton). */
+  db: Database;
+  /** Resolves the CURRENT verified session user id — the identity fence. */
+  currentUserId: CurrentUserIdProvider;
+  /** Connectivity signal driving the local-only vs sync decision. */
+  connectivity: ConnectivityLike;
+  /** Retry/backoff policy; defaults to DEFAULT_BACKOFF. */
+  policy?: BackoffPolicy;
 }
 
 export class SyncEngine {
   private readonly queue: CompletionQueue;
+  private readonly uploader: StatementUploader;
+  private readonly db: Database;
+  private readonly policy: BackoffPolicy;
+  private readonly currentUserId: CurrentUserIdProvider;
+  private readonly connectivity: ConnectivityLike;
   private running = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribeConnectivity: (() => void) | null = null;
 
-  constructor(
-    private readonly uploader: StatementUploader = supabaseUploader,
-    private readonly db: Database = defaultDatabase,
-    private readonly policy: BackoffPolicy = DEFAULT_BACKOFF,
-  ) {
-    this.queue = new CompletionQueue(db);
+  constructor(deps: SyncEngineDeps) {
+    this.uploader = deps.uploader;
+    this.db = deps.db;
+    this.policy = deps.policy ?? DEFAULT_BACKOFF;
+    this.currentUserId = deps.currentUserId;
+    this.connectivity = deps.connectivity;
+    this.queue = new CompletionQueue(deps.db);
   }
 
   /**
@@ -215,7 +205,7 @@ export class SyncEngine {
    */
   start(): void {
     if (this.unsubscribeConnectivity) return;
-    this.unsubscribeConnectivity = connectivity.subscribe((snap) => {
+    this.unsubscribeConnectivity = this.connectivity.subscribe((snap) => {
       if (snap.isOnline) void this.syncNow();
     });
     // `subscribe` emits current state immediately, so an already-online device
@@ -238,34 +228,80 @@ export class SyncEngine {
    * overlapping triggers (connectivity flap + manual call) don't double-upload.
    */
   async syncNow(): Promise<SyncResult> {
-    const result: SyncResult = { attempted: 0, acked: 0, retryable: 0, rejected: 0 };
+    const result: SyncResult = {
+      attempted: 0,
+      acked: 0,
+      retryable: 0,
+      rejected: 0,
+      skipped: 0,
+    };
 
     // Never sync while offline — the local store is the source of truth until we
     // reconnect. This is the local-only vs sync gate.
-    if (!connectivity.isOnline) return result;
+    if (!this.connectivity.isOnline) return result;
     if (this.running) return result; // a drain is already in flight
     this.running = true;
 
+    // Backoff bookkeeping for this drain: the timer's delay grows with the
+    // attempt count of the retryable rows, and no timer is armed at all once
+    // every retryable row has exhausted the policy's maxAttempts (give-up for
+    // TIMER-driven retries; see below).
+    let retryEligible = 0;
+    let maxRetryAttempt = 0;
+
     try {
+      // IDENTITY FENCE (defense in depth for compliance records): the server
+      // BEFORE INSERT trigger re-stamps user_id/tenant_id from whatever session
+      // performs the upload — so a stale row authored by user A must NEVER be
+      // uploaded under user B's session, or A's completion would be recorded as
+      // B's. Sign-out wipes the store (see AuthProvider), but even if that is
+      // ever missed, this fence keeps a queued statement pinned to its author.
+      // We re-resolve the CURRENT session's auth user id immediately before
+      // each row (not once per drain): the fence must stay correct even if the
+      // live session ever changes mid-drain, since the upload — and the server
+      // re-stamp — happens per row, not per batch. Rows whose user_id differs
+      // from the current session are skipped and left pending, un-attempted;
+      // with no session at all the drain stops (nothing may upload).
       const pending = await this.queue.pending();
       for (const row of pending) {
         // Re-check connectivity between items: if we dropped offline mid-batch,
         // stop cleanly and leave the rest queued (never drop them).
-        if (!connectivity.isOnline) break;
+        if (!this.connectivity.isOnline) break;
+
+        const currentUserId = await this.currentUserId();
+        if (!currentUserId || row.userId !== currentUserId) {
+          result.skipped += 1;
+          continue;
+        }
 
         result.attempted += 1;
         const outcome = await this.uploadOne(row);
         if (outcome === 'acked') result.acked += 1;
         else if (outcome === 'rejected') result.rejected += 1;
-        else result.retryable += 1;
+        else {
+          result.retryable += 1;
+          // `row.attemptCount` reflects the post-attempt bookkeeping (uploadOne
+          // persisted the increment on this model instance).
+          if (row.attemptCount < this.policy.maxAttempts) {
+            retryEligible += 1;
+            maxRetryAttempt = Math.max(maxRetryAttempt, row.attemptCount);
+          }
+        }
       }
     } finally {
       this.running = false;
     }
 
-    // If anything is still pending, schedule a backoff retry using the max
-    // attempt count seen — bounded, jittered, and never dropping the queue.
-    if (result.retryable > 0) this.scheduleRetry();
+    // Schedule a backoff retry ONLY while some retryable row is still under the
+    // attempt cap, with a delay that GROWS with the attempt count (exponential,
+    // capped at policy.maxMs). Once every retryable row has exhausted
+    // maxAttempts, no timer is re-armed — that is the give-up: no infinite
+    // retry loop. The rows are NEVER dropped, though; they stay pending, and an
+    // event-driven drain (reconnect, a new enqueue, the sign-out flush) still
+    // gives them a chance — deliberate durability for compliance records.
+    // Permanently-rejected rows never reach here at all (pending() excludes
+    // them).
+    if (retryEligible > 0) this.scheduleRetry(maxRetryAttempt);
 
     return result;
   }
@@ -305,7 +341,9 @@ export class SyncEngine {
           r.attemptCount = r.attemptCount + 1;
           r.lastAttemptAt = now;
           if (outcome === 'rejected') {
-            r.lastError = 'rejected';
+            // Terminal: pending() excludes this marker, so the row stops
+            // re-uploading forever while remaining stored for inspection.
+            r.lastError = REJECTED_MARKER;
           } else {
             r.lastError = 'retryable';
           }
@@ -316,17 +354,19 @@ export class SyncEngine {
     return outcome;
   }
 
-  /** Schedule one jittered backoff retry of the whole drain. */
-  private scheduleRetry(): void {
+  /**
+   * Schedule one jittered backoff retry of the whole drain. `attempt` is the
+   * highest attempt count among the still-eligible retryable rows, so the delay
+   * GROWS exponentially drain over drain (base × factor^attempt, capped at
+   * policy.maxMs) instead of hammering on a fixed interval.
+   */
+  private scheduleRetry(attempt: number): void {
     if (this.retryTimer) return; // one retry armed at a time
-    const base = backoffDelayMs(1, this.policy);
+    const base = backoffDelayMs(attempt, this.policy);
     const jitter = Math.floor(Math.random() * (base * 0.25));
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      if (connectivity.isOnline) void this.syncNow();
+      if (this.connectivity.isOnline) void this.syncNow();
     }, base + jitter);
   }
 }
-
-/** App-wide sync engine bound to the singleton DB + (for now) the not-wired transport. */
-export const syncEngine = new SyncEngine();

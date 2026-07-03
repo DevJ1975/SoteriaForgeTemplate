@@ -1,23 +1,29 @@
 /**
- * Pure-logic tests for the offline queue + sync engine.
+ * Tests for the offline queue: the append-only, idempotent-by-UUID outbox.
  *
  * Runner: node:test (built in) + node:assert/strict — SAME zero-dependency setup
- * the shared package uses, so this runs without a native SQLite adapter or a React
- * Native runtime. We exercise the pieces that carry the Phase 5 invariants and are
- * pure or DB-injectable:
+ * the shared package uses, so this runs without a native SQLite adapter or a
+ * React Native runtime (`npm run test` in apps/mobile compiles via
+ * tsconfig.test.json and executes the emitted JS).
+ *
+ * The REAL CompletionQueue runs against `fakeDb.ts` — an in-memory fake that
+ * interprets the actual `Q` clause objects the queue builds, so
+ * `uploadableClauses()`, `pending()`, `pendingCount()`, `completedLessonIds()`
+ * and `enqueue()`'s idempotency lookup all execute unmodified. Invariants
+ * covered:
  *
  *   - toCompletionRow: a finished xAPI statement projects to the right columns,
  *     unsynced, keyed by the CLIENT-GENERATED UUID.
- *   - CompletionQueue.enqueue against an in-memory fake DB: APPEND-ONLY and
- *     IDEMPOTENT BY UUID — enqueuing the same id twice yields ONE row and never
- *     mutates the first. A whole offline course (many appends) queues cleanly.
+ *   - enqueue: APPEND-ONLY and IDEMPOTENT BY UUID — enqueuing the same id twice
+ *     yields ONE row and never mutates the first.
+ *   - pending()/pendingCount(): permanently-rejected rows are EXCLUDED while
+ *     fresh (last_error NULL) and transiently-failed rows still upload — the
+ *     SQL-null-safe disjunction in uploadableClauses().
+ *   - completedLessonIds(): the identity fence — only the CURRENT verified
+ *     user's rows count, only completion verbs count, corrupt rows are skipped.
  *   - backoffDelayMs / decideNext: retry policy — exponential + capped, ack →
  *     mark-synced, rejected → give-up, retryable → retry until maxAttempts, and
  *     it NEVER decides to drop the row.
- *
- * These do NOT import the app's real WatermelonDB singleton (that needs native
- * SQLite); they inject a fake `Database` with just the surface the queue touches.
- * To run after tsc emits: `node --test <out>/offline/__tests__/queue.test.js`.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,99 +34,12 @@ import {
   type XapiStatement,
 } from '@soteria-forge/shared';
 
-import { toCompletionRow, CompletionQueue } from '../queue';
+import { toCompletionRow, CompletionQueue, REJECTED_MARKER } from '../queue';
 import { backoffDelayMs, decideNext, DEFAULT_BACKOFF } from '../sync';
+import { makeFakeDb } from './fakeDb';
 
 // ---------------------------------------------------------------------------
-// Minimal in-memory fake of the WatermelonDB surface the queue uses.
-// ---------------------------------------------------------------------------
-
-interface FakeRow {
-  statementId: string;
-  tenantId: string;
-  userId: string;
-  verb: string;
-  objectId: string;
-  statementJson: string;
-  resultJson?: string;
-  timestamp: string;
-  synced: boolean;
-  attemptCount: number;
-  enqueuedAt: number;
-}
-
-/** A fake collection supporting exactly the query shapes queue.ts issues. */
-class FakeCollection {
-  rows: FakeRow[] = [];
-
-  query(...conditions: Array<{ column: string; value: unknown }>) {
-    const rows = this.rows;
-    const matches = () =>
-      rows.filter((r) =>
-        conditions.every((c) => (r as unknown as Record<string, unknown>)[toModelKey(c.column)] === c.value),
-      );
-    return {
-      fetch: async () => matches(),
-      fetchCount: async () => matches().length,
-    };
-  }
-
-  async create(builder: (row: FakeRow) => void): Promise<FakeRow> {
-    const row = {} as FakeRow;
-    builder(row);
-    this.rows.push(row);
-    return row;
-  }
-}
-
-/** Map a WatermelonDB column name (snake) to our fake model key (camel). */
-function toModelKey(column: string): string {
-  switch (column) {
-    case 'statement_id':
-      return 'statementId';
-    case 'synced':
-      return 'synced';
-    default:
-      return column;
-  }
-}
-
-/** Fake Database: `get()` returns the one collection; `write()` just runs the fn. */
-class FakeDatabase {
-  constructor(private readonly collection = new FakeCollection()) {}
-  get() {
-    return this.collection;
-  }
-  async write<T>(fn: () => Promise<T>): Promise<T> {
-    return fn();
-  }
-}
-
-// The Q helpers queue.ts imports build objects our FakeCollection.query reads.
-// queue.ts calls Q.where('col', value) and Q.sortBy(...); our fake ignores sort
-// and reads `where` clauses. We shim by monkey-not — instead we reconstruct the
-// clause objects the fake expects by re-implementing the calls the queue makes
-// through a tiny adapter below.
-
-// Build a queue whose db is our fake, adapting the Q clause objects.
-function makeQueue(): { queue: CompletionQueue; collection: FakeCollection } {
-  const collection = new FakeCollection();
-  const db = {
-    get: () => collection,
-    write: async <T>(fn: () => Promise<T>) => fn(),
-  } as unknown as ConstructorParameters<typeof CompletionQueue>[0];
-  // The real CompletionQueue calls collection.query(Q.where(...)). Our fake
-  // collection.query accepts {column,value} objects; WatermelonDB's Q.where
-  // returns an opaque object. To keep this test self-contained we override the
-  // collection.query to interpret the queue's real Q clauses via their public
-  // shape is not stable — so instead we test enqueue idempotency at the level
-  // that does not depend on Q internals: see below.
-  const queue = new CompletionQueue(db);
-  return { queue, collection };
-}
-
-// ---------------------------------------------------------------------------
-// toCompletionRow — pure projection
+// Fixtures
 // ---------------------------------------------------------------------------
 
 function sampleStatement(id?: string): XapiStatement {
@@ -134,6 +53,34 @@ function sampleStatement(id?: string): XapiStatement {
     timestamp: '2026-07-01T12:00:00.000Z',
   });
 }
+
+interface LessonStatementInput {
+  id?: string;
+  verb?: string;
+  lessonId?: string | null;
+  courseId?: string;
+}
+
+/** A lesson-scoped statement shaped like the app's real completion emissions. */
+function lessonStatement({
+  id,
+  verb = xapiVerbs.completed,
+  lessonId = 'lesson-1',
+  courseId = 'course-1',
+}: LessonStatementInput = {}): XapiStatement {
+  return createCompletionStatement({
+    id,
+    tenantId: 'tenant-alpha',
+    actor: { name: 'Worker One' },
+    verb: { id: verb, display: { 'en-US': 'verb' } },
+    object: { id: `https://soteria/lesson/${lessonId ?? 'none'}` },
+    context: lessonId === null ? { course_id: courseId } : { course_id: courseId, lesson_id: lessonId },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// toCompletionRow — pure projection
+// ---------------------------------------------------------------------------
 
 test('toCompletionRow projects a statement into an unsynced, UUID-keyed row', () => {
   const stmt = sampleStatement('11111111-1111-4111-8111-111111111111');
@@ -173,67 +120,66 @@ test('toCompletionRow carries a result when present and null otherwise', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Append-only + idempotent-by-UUID enqueue (fake DB, real CompletionQueue.enqueue
-// idempotency path exercised via findByStatementId + create through a stub).
+// enqueue — REAL code path: append-only + idempotent by UUID
 // ---------------------------------------------------------------------------
 
-test('enqueue is append-only and idempotent by UUID (dedupes on the client id)', async () => {
-  // We simulate the enqueue algorithm directly against the fake store to prove
-  // the invariant without depending on WatermelonDB's Q internals: build once,
-  // insert once, and re-inserting the same UUID is a no-op returning the original.
-  const collection = new FakeCollection();
+test('enqueue is append-only and idempotent by UUID (real CompletionQueue path)', async () => {
+  const { db, collection } = makeFakeDb();
+  const queue = new CompletionQueue(db);
   const id = '22222222-2222-4222-8222-222222222222';
 
-  const insert = (stmt: XapiStatement) => {
-    const existing = collection.rows.find((r) => r.statementId === stmt.id);
-    if (existing) return existing; // idempotency guard (mirrors queue.enqueue)
-    const fields = toCompletionRow(stmt, 'user-1');
-    const row: FakeRow = {
-      statementId: fields.statement_id,
-      tenantId: fields.tenant_id,
-      userId: fields.user_id,
-      verb: fields.verb,
-      objectId: fields.object_id,
-      statementJson: fields.statement_json,
-      resultJson: fields.result_json ?? undefined,
-      timestamp: fields.timestamp,
-      synced: fields.synced,
-      attemptCount: fields.attempt_count,
-      enqueuedAt: fields.enqueued_at,
-    };
-    collection.rows.push(row);
-    return row;
+  const input = {
+    id,
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'Worker One' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/course/c1' },
+    timestamp: '2026-07-01T12:00:00.000Z',
   };
 
-  const first = insert(sampleStatement(id));
-  const second = insert(sampleStatement(id)); // same UUID → must NOT add a row
+  const first = await queue.enqueue(input);
+  const second = await queue.enqueue(input); // same UUID → must NOT add a row
 
   assert.equal(collection.rows.length, 1, 'same UUID enqueued twice must yield ONE row');
   assert.equal(first, second, 'second enqueue returns the existing row unchanged');
   assert.equal(collection.rows[0]?.synced, false, 'existing row is never mutated by re-enqueue');
+  assert.equal(collection.rows[0]?.attemptCount, 0);
 
   // A different UUID appends a second row (append-only growth).
-  insert(sampleStatement('33333333-3333-4333-8333-333333333333'));
+  await queue.enqueue({ ...input, id: '33333333-3333-4333-8333-333333333333' });
   assert.equal(collection.rows.length, 2);
 });
 
-test('a full offline course reconciles cleanly: many appends, each a distinct UUID', () => {
-  const collection = new FakeCollection();
+test('enqueue mints a fresh UUID when none is supplied', async () => {
+  const { db, collection } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  const input = {
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'Worker One' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/course/c1' },
+  };
+  const a = await queue.enqueue(input);
+  const b = await queue.enqueue(input); // no id → a NEW statement, appended
+
+  assert.match(a.statementId, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(a.statementId, b.statementId);
+  assert.equal(collection.rows.length, 2);
+});
+
+test('a full offline course reconciles cleanly: many appends, each a distinct UUID', async () => {
+  const { db, collection } = makeFakeDb();
+  const queue = new CompletionQueue(db);
   // Simulate completing 10 lessons offline — 10 statements, all unique ids.
   for (let i = 0; i < 10; i++) {
-    const stmt = sampleStatement(`4444444${i}-4444-4444-8444-44444444444${i}`.slice(0, 36));
-    const fields = toCompletionRow(stmt, 'user-1');
-    collection.rows.push({
-      statementId: fields.statement_id,
-      tenantId: fields.tenant_id,
-      userId: fields.user_id,
-      verb: fields.verb,
-      objectId: fields.object_id,
-      statementJson: fields.statement_json,
-      timestamp: fields.timestamp,
-      synced: false,
-      attemptCount: 0,
-      enqueuedAt: fields.enqueued_at,
+    await queue.enqueue({
+      tenantId: 'tenant-alpha',
+      userId: 'user-1',
+      actor: { name: 'Worker One' },
+      verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+      object: { id: `https://soteria/lesson/l${i}` },
     });
   }
   assert.equal(collection.rows.length, 10);
@@ -243,11 +189,187 @@ test('a full offline course reconciles cleanly: many appends, each a distinct UU
   assert.equal(ids.size, 10);
 });
 
-// Keep makeQueue referenced so the fake-DB scaffold is not dead code if a future
-// change wires CompletionQueue.enqueue through it directly.
-test('CompletionQueue can be constructed against an injected database', () => {
-  const { queue } = makeQueue();
-  assert.ok(queue instanceof CompletionQueue);
+// ---------------------------------------------------------------------------
+// pending() / pendingCount() — rejected-row exclusion (uploadableClauses)
+// ---------------------------------------------------------------------------
+
+async function seedOutbox(queue: CompletionQueue) {
+  // Four rows in enqueue order: fresh, transient-failed, rejected, synced.
+  const fresh = await queue.enqueue({
+    id: '44444444-4444-4444-8444-444444444441',
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'W' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/fresh' },
+  });
+  const retryable = await queue.enqueue({
+    id: '44444444-4444-4444-8444-444444444442',
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'W' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/retryable' },
+  });
+  await retryable.update((r) => {
+    r.attemptCount = 2;
+    r.lastError = 'retryable';
+  });
+  const rejected = await queue.enqueue({
+    id: '44444444-4444-4444-8444-444444444443',
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'W' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/rejected' },
+  });
+  await rejected.update((r) => {
+    r.attemptCount = 1;
+    r.lastError = REJECTED_MARKER;
+  });
+  const synced = await queue.enqueue({
+    id: '44444444-4444-4444-8444-444444444444',
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'W' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/synced' },
+  });
+  await synced.update((r) => {
+    r.synced = true;
+  });
+  return { fresh, retryable, rejected, synced };
+}
+
+test('pending() uploads fresh + transiently-failed rows but EXCLUDES rejected and synced', async () => {
+  const { db } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  const { fresh, retryable } = await seedOutbox(queue);
+
+  const pending = await queue.pending();
+  assert.deepEqual(
+    pending.map((r) => r.statementId),
+    [fresh.statementId, retryable.statementId],
+    'fresh (last_error NULL) and retryable rows drain; rejected/synced do not',
+  );
+  assert.equal(await queue.pendingCount(), 2);
+});
+
+test('a fresh row with NULL last_error is uploadable (SQL null semantics guard)', async () => {
+  // The regression this guards: `last_error != "rejected"` alone excludes NULL
+  // rows under SQL three-valued logic — brand-new rows would never upload. The
+  // fake's notEq implements SQL semantics, so uploadableClauses()'s explicit
+  // IS-NULL disjunction is what makes this pass.
+  const { db } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  const row = await queue.enqueue({
+    tenantId: 'tenant-alpha',
+    userId: 'user-1',
+    actor: { name: 'W' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/l1' },
+  });
+  assert.equal(row.lastError, undefined);
+  assert.equal(await queue.pendingCount(), 1);
+});
+
+test('pending() preserves append order (oldest first)', async () => {
+  const { db, collection } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  await seedOutbox(queue);
+  // Scramble enqueuedAt to prove the sort is real, not insertion order.
+  collection.rows[0]!.enqueuedAt = 300;
+  collection.rows[1]!.enqueuedAt = 100;
+  const pending = await queue.pending();
+  assert.deepEqual(
+    pending.map((r) => r.enqueuedAt),
+    [100, 300],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// completedLessonIds — identity fence + verb set + defensive parsing
+// ---------------------------------------------------------------------------
+
+test('completedLessonIds returns ONLY the requesting user’s completions', async () => {
+  const { db } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  await queue.enqueue({
+    tenantId: 'tenant-alpha',
+    userId: 'user-a',
+    actor: { name: 'A' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/a1' },
+    context: { course_id: 'course-1', lesson_id: 'lesson-a1' },
+  });
+  await queue.enqueue({
+    tenantId: 'tenant-alpha',
+    userId: 'user-b',
+    actor: { name: 'B' },
+    verb: { id: xapiVerbs.completed, display: { 'en-US': 'completed' } },
+    object: { id: 'https://soteria/lesson/b1' },
+    context: { course_id: 'course-1', lesson_id: 'lesson-b1' },
+  });
+
+  // The fence: one user's completions can never render as another's.
+  assert.deepEqual([...(await queue.completedLessonIds('user-a'))], ['lesson-a1']);
+  assert.deepEqual([...(await queue.completedLessonIds('user-b'))], ['lesson-b1']);
+  assert.equal((await queue.completedLessonIds('user-c')).size, 0);
+  // No verified identity → nothing to show, never "everything".
+  assert.equal((await queue.completedLessonIds('')).size, 0);
+});
+
+test('completedLessonIds counts exactly the server trigger’s verb set (completed|passed, never failed)', async () => {
+  const { db } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  const enq = (verb: string, lessonId: string) =>
+    queue.enqueue({
+      tenantId: 'tenant-alpha',
+      userId: 'user-1',
+      actor: { name: 'W' },
+      verb: { id: verb, display: { 'en-US': 'v' } },
+      object: { id: `https://soteria/lesson/${lessonId}` },
+      context: { course_id: 'course-1', lesson_id: lessonId },
+    });
+  await enq(xapiVerbs.completed, 'l-completed');
+  await enq(xapiVerbs.passed, 'l-passed');
+  await enq(xapiVerbs.failed, 'l-failed'); // recorded, but NEVER counts
+  await enq(xapiVerbs.experienced, 'l-experienced');
+
+  const ids = await queue.completedLessonIds('user-1');
+  assert.deepEqual([...ids].sort(), ['l-completed', 'l-passed']);
+});
+
+test('completedLessonIds filters by course, requires context.lesson_id, and skips corrupt rows', async () => {
+  const { db, collection } = makeFakeDb();
+  const queue = new CompletionQueue(db);
+  const enq = (stmt: XapiStatement) =>
+    queue.enqueue({
+      id: stmt.id,
+      tenantId: stmt.tenantId,
+      userId: 'user-1',
+      actor: stmt.actor,
+      verb: stmt.verb,
+      object: stmt.object,
+      context: stmt.context,
+    });
+  await enq(lessonStatement({ lessonId: 'in-course', courseId: 'course-1' }));
+  await enq(lessonStatement({ lessonId: 'other-course', courseId: 'course-2' }));
+  await enq(lessonStatement({ lessonId: null, courseId: 'course-1' })); // no lesson_id → ignored
+
+  // A corrupt local JSON payload must not blank the whole list — skip it.
+  const corrupt = await enq(lessonStatement({ lessonId: 'corrupt', courseId: 'course-1' }));
+  await corrupt.update((r) => {
+    (r as { statementJson: string }).statementJson = '{not json';
+  });
+  assert.equal(collection.rows.length, 4);
+
+  assert.deepEqual([...(await queue.completedLessonIds('user-1', 'course-1'))], ['in-course']);
+  assert.deepEqual(
+    [...(await queue.completedLessonIds('user-1'))].sort(),
+    ['in-course', 'other-course'],
+    'without a courseId filter, every course’s completions are visible',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -259,9 +381,15 @@ test('backoffDelayMs grows exponentially and caps at maxMs', () => {
   assert.equal(backoffDelayMs(0, p), p.baseMs); // 1s
   assert.equal(backoffDelayMs(1, p), p.baseMs * p.factor); // 2s
   assert.equal(backoffDelayMs(2, p), p.baseMs * p.factor * p.factor); // 4s
-  // Far out, it saturates at the cap and never exceeds it.
+  // The delay is monotonically non-decreasing attempt over attempt…
+  for (let a = 1; a < 20; a++) {
+    assert.ok(backoffDelayMs(a, p) >= backoffDelayMs(a - 1, p));
+  }
+  // …and far out it saturates at the cap and never exceeds it.
+  assert.equal(backoffDelayMs(9, p), p.maxMs); // 1s × 2^9 = 512s > 300s cap
   assert.equal(backoffDelayMs(100, p), p.maxMs);
-  assert.ok(backoffDelayMs(100, p) <= p.maxMs);
+  // Negative/zero attempts degrade to the base, never to 0 or NaN.
+  assert.equal(backoffDelayMs(-3, p), p.baseMs);
 });
 
 // ---------------------------------------------------------------------------
@@ -276,21 +404,25 @@ test('decideNext: ack → mark-synced', () => {
 test('decideNext: rejected → give-up (but the row is retained, not deleted)', () => {
   // give-up means "stop auto-retrying"; the engine still keeps the row on disk.
   assert.deepEqual(decideNext('rejected', 0), { action: 'give-up' });
+  assert.deepEqual(decideNext('rejected', DEFAULT_BACKOFF.maxAttempts + 5), { action: 'give-up' });
 });
 
-test('decideNext: retryable retries with backoff until maxAttempts, then gives up', () => {
+test('decideNext: retryable retries with GROWING backoff until maxAttempts, then gives up', () => {
   const p = DEFAULT_BACKOFF;
-  const early = decideNext('retryable', 0, p);
-  assert.equal(early.action, 'retry');
-  assert.equal((early as { delayMs: number }).delayMs, backoffDelayMs(0, p));
-
-  const mid = decideNext('retryable', 3, p);
-  assert.equal(mid.action, 'retry');
-  assert.equal((mid as { delayMs: number }).delayMs, backoffDelayMs(3, p));
-
-  // On the last permitted attempt, switch to give-up (still never drops the row).
-  const last = decideNext('retryable', p.maxAttempts - 1, p);
-  assert.deepEqual(last, { action: 'give-up' });
+  let previousDelay = 0;
+  for (let attempt = 0; attempt < p.maxAttempts - 1; attempt++) {
+    const d = decideNext('retryable', attempt, p);
+    assert.equal(d.action, 'retry', `attempt ${attempt} still retries`);
+    const delay = (d as { delayMs: number }).delayMs;
+    assert.equal(delay, backoffDelayMs(attempt, p));
+    assert.ok(delay >= previousDelay, 'delay never shrinks as attempts grow');
+    previousDelay = delay;
+  }
+  // On the last permitted attempt — and beyond — switch to give-up (still
+  // never drops the row).
+  assert.deepEqual(decideNext('retryable', p.maxAttempts - 1, p), { action: 'give-up' });
+  assert.deepEqual(decideNext('retryable', p.maxAttempts, p), { action: 'give-up' });
+  assert.deepEqual(decideNext('retryable', p.maxAttempts + 100, p), { action: 'give-up' });
 });
 
 test('decideNext never returns an action that discards the queued statement', () => {

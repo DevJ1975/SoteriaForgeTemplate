@@ -35,9 +35,13 @@ import {
   type XapiObject,
   type XapiResult,
 } from '@soteria-forge/shared';
-import { database as defaultDatabase } from '../db';
 import { Tables } from '../db/schema';
 import type { CompletionStatementModel } from '../db/models';
+
+// NOTE: this module is deliberately NODE-SAFE (no import of `../db`, whose
+// SQLite adapter needs a native runtime): the Database is INJECTED. The
+// app-wide `completionQueue` singleton binding lives in `./singletons.ts`;
+// unit tests construct a CompletionQueue over an in-memory fake instead.
 
 /**
  * Input to enqueue a completion. Mirrors the shared builder input but requires a
@@ -113,12 +117,48 @@ export function toCompletionRow(
 }
 
 /**
- * The queue writer. Bound to a Database (defaults to the app singleton; tests
- * can inject a fake). All mutations funnel through here so "append-only" is
- * enforced in exactly one place.
+ * Terminal marker the sync engine writes to `last_error` when the server
+ * PERMANENTLY refuses a statement (RLS refusal / malformed payload — see
+ * sync.ts `outcomeForPostgrestCode`). Rows carrying it are KEPT in the store
+ * (append-only bookkeeping, inspectable for audit) but excluded from every
+ * pending read, so a row the server will never accept stops re-uploading
+ * forever. Transient failures record 'retryable' instead and stay pending.
+ */
+export const REJECTED_MARKER = 'rejected';
+
+/**
+ * Verb IRIs that mark a lesson DONE, exactly mirroring the server progress
+ * trigger (migration 12): the canonical `completed` OR `passed`, matched
+ * exactly. `failed` is deliberately excluded — a failed quiz attempt is
+ * recorded but never counts toward completion. Keep this set and the trigger
+ * in lockstep.
+ */
+export const COMPLETION_VERB_IDS: ReadonlySet<string> = new Set([
+  xapiVerbs.completed,
+  xapiVerbs.passed,
+]);
+
+/**
+ * Query clauses for "still uploadable" rows: unsynced AND not permanently
+ * rejected. The explicit `last_error is null OR last_error != 'rejected'`
+ * disjunction is deliberate — a plain not-equals over a nullable column risks
+ * excluding fresh rows (whose last_error is null) under SQL null semantics.
+ */
+function uploadableClauses() {
+  return [
+    Q.where('synced', false),
+    Q.or(Q.where('last_error', null), Q.where('last_error', Q.notEq(REJECTED_MARKER))),
+  ];
+}
+
+/**
+ * The queue writer. Bound to an injected Database (the app binds the SQLite
+ * singleton in `./singletons.ts`; tests inject an in-memory fake). All
+ * mutations funnel through here so "append-only" is enforced in exactly one
+ * place.
  */
 export class CompletionQueue {
-  constructor(private readonly db: Database = defaultDatabase) {}
+  constructor(private readonly db: Database) {}
 
   private get collection() {
     return this.db.get<CompletionStatementModel>(Tables.completionStatements);
@@ -184,20 +224,33 @@ export class CompletionQueue {
     return created;
   }
 
-  /** All not-yet-synced rows, oldest first (append order) — sync.ts drains these. */
+  /**
+   * All still-uploadable rows, oldest first (append order) — sync.ts drains
+   * these. Rows the server permanently rejected (last_error = 'rejected') are
+   * EXCLUDED so they stop re-uploading forever; they remain in the store for
+   * inspection (append-only bookkeeping — nothing is ever deleted).
+   */
   async pending(): Promise<CompletionStatementModel[]> {
     return this.collection
-      .query(Q.where('synced', false), Q.sortBy('enqueued_at', Q.asc))
+      .query(...uploadableClauses(), Q.sortBy('enqueued_at', Q.asc))
       .fetch();
   }
 
   /**
-   * The set of lesson ids this device has locally recorded as COMPLETED, read
+   * The set of lesson ids the given user has locally recorded as COMPLETED, read
    * from the append-only outbox (synced or not) so the UI reflects a completion
    * the instant it is enqueued — before it ever reaches the server.
    *
-   * A completion is any queued statement whose verb is `completed` and whose
-   * `context.lesson_id` is set (the same shape the server progress trigger reads).
+   * IDENTITY FENCE: `userId` is REQUIRED and must be the CURRENT verified
+   * session's auth user id. Rows are filtered by their `user_id` column so one
+   * user's completions can never render as another's on a shared device (e.g.
+   * if a sign-out wipe was ever missed). This mirrors the sync engine's upload
+   * fence.
+   *
+   * A completion is any queued statement whose verb is `completed` OR `passed`
+   * (COMPLETION_VERB_IDS — the exact verb set the migration-12 server progress
+   * trigger counts; `failed` never counts) and whose `context.lesson_id` is set
+   * (the same shape that trigger reads).
    * When `courseId` is given, only completions in that course are returned. This
    * is READ-ONLY: it never mutates a row, preserving the append-only contract.
    *
@@ -205,9 +258,10 @@ export class CompletionQueue {
    * display — authorization is still Postgres RLS on the server; a mis-scoped row
    * could never be inserted server-side in the first place.
    */
-  async completedLessonIds(courseId?: string): Promise<Set<string>> {
-    const rows = await this.collection.query().fetch();
+  async completedLessonIds(userId: string, courseId?: string): Promise<Set<string>> {
     const completed = new Set<string>();
+    if (!userId) return completed; // no verified identity → nothing to show
+    const rows = await this.collection.query(Q.where('user_id', userId)).fetch();
     for (const row of rows) {
       let statement: XapiStatement;
       try {
@@ -216,7 +270,7 @@ export class CompletionQueue {
         // A corrupt local JSON payload must not blank the whole list — skip it.
         continue;
       }
-      if (statement.verb?.id !== xapiVerbs.completed) continue;
+      if (!statement.verb?.id || !COMPLETION_VERB_IDS.has(statement.verb.id)) continue;
       const ctx = (statement.context ?? {}) as {
         course_id?: unknown;
         lesson_id?: unknown;
@@ -229,16 +283,17 @@ export class CompletionQueue {
     return completed;
   }
 
-  /** Count of unsynced rows — drives the OfflineBanner's pending badge. */
+  /**
+   * Count of rows still awaiting upload — drives the OfflineBanner's pending
+   * badge. Permanently-rejected rows are excluded (matching `pending()`): a row
+   * that will never sync must not read as "will sync when online" forever.
+   */
   async pendingCount(): Promise<number> {
-    return this.collection.query(Q.where('synced', false)).fetchCount();
+    return this.collection.query(...uploadableClauses()).fetchCount();
   }
 
-  /** Observable count of unsynced rows for reactive UI (no polling). */
+  /** Observable count of still-uploadable rows for reactive UI (no polling). */
   observePendingCount() {
-    return this.collection.query(Q.where('synced', false)).observeCount();
+    return this.collection.query(...uploadableClauses()).observeCount();
   }
 }
-
-/** App-wide queue bound to the singleton database. */
-export const completionQueue = new CompletionQueue();

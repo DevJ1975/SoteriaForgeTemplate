@@ -26,7 +26,13 @@ import { useAuth } from '../auth';
 
 export function useAuthRedirect(): void {
   const { status } = useAuth();
-  const segments = useSegments();
+  // Widen to string[] (safe: a tuple is assignable to its array type). Without
+  // generated typed routes, expo-router's `RouteSegments<Route>` collapses to
+  // the 1-tuple `[string]`, but at runtime `useSegments()` is the full path
+  // split into segments — e.g. `/(app)/join` → `['(app)', 'join']` — so depth-2
+  // reads are legitimate. `noUncheckedIndexedAccess` keeps each read
+  // `string | undefined`, which the equality checks below handle.
+  const segments: string[] = useSegments();
   const router = useRouter();
 
   useEffect(() => {

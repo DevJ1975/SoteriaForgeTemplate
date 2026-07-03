@@ -6,7 +6,13 @@
  * app never sends a tenant_id for authorization.
  */
 export { AuthProvider, useAuth, useTenantId } from './AuthProvider';
-export type { AuthUser, AuthStatus, SignInInput, RedeemResult } from './AuthProvider';
+export type {
+  AuthUser,
+  AuthStatus,
+  SignInInput,
+  RedeemResult,
+  AuthActionResult,
+} from './AuthProvider';
 // Re-exported so screens can gate UI on whether the backend is wired without
 // reaching into the supabase module directly.
 export { isSupabaseConfigured } from '../supabase';
