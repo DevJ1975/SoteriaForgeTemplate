@@ -36,4 +36,10 @@ config.resolver.nodeModulesPaths = [
 // 3. Deduplicate React / React Native to the app's single copy.
 config.resolver.disableHierarchicalLookup = true;
 
+// 4. Resolve package.json `exports` maps. SDK 52's Metro ships with this OFF
+//    (default-on only from SDK 53), but `@soteria-forge/shared/supabase` exists
+//    ONLY through shared's exports map — without this flag the first bundle
+//    fails to resolve it even though tsc (bundler resolution) is green.
+config.resolver.unstable_enablePackageExports = true;
+
 module.exports = config;

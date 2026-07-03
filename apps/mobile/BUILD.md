@@ -51,6 +51,10 @@ eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<anon key>" --envir
 eas build -p android --profile preview
 ```
 
+The cloud build compiles `@soteria-forge/shared` automatically — the app's
+`eas-build-post-install` script (package.json) builds its `dist/` after the fresh cloud
+`npm install`, since `dist/` is git-ignored and would otherwise be missing when Metro bundles.
+
 When it finishes, EAS prints a URL + QR code — open it on the phone (or `adb install <file>.apk`)
 and the app installs. Sign in with a seeded account (e.g. `worker@atl.test` / `SoteriaForge!2026`)
 to see real, tenant-scoped data.
@@ -102,6 +106,19 @@ distributable EAS build (a dev build works fine without them; Expo falls back to
 
 ## Notes
 
+- **WatermelonDB runs on the async bridge for now** (`disableJsi: true` on the config plugin):
+  the plugin's Android JSI injection targets an API React Native removed after 0.73, so it cannot
+  compile on RN 0.76. `SQLiteAdapter({ jsi: true })` detects the missing JSI install and falls
+  back to the async bridge with a console warning — correct, just slower. Revisit with the SDK
+  upgrade.
+- **If a lockfile is ever committed**, keep `@supabase/supabase-js` resolving to ≥ 2.50: older
+  pins pull a `realtime-js` that requires Node's `ws`/`stream`, which breaks the Metro bundle
+  under the package-exports resolution this app enables.
+- **New Architecture is intentionally OFF** (`newArchEnabled: false` in `app.json`) for first
+  boots: WatermelonDB's JSI adapter has a history of new-arch incompatibilities, and a first
+  device bring-up should have the fewest unknowns. Revisit (flip to `true`) alongside the
+  Expo SDK upgrade — Play's Aug 2026 target-API requirement forces that upgrade before any
+  Play submission anyway.
 - The first EAS build generates an Android keystore for you (managed credentials) — no manual signing setup.
 - `eas.json` defines three profiles: `development` (dev client APK), `preview` (installable APK — use this to *see* it), `production` (Play Store app-bundle).
 - Do not commit `.env` or the service-role key. Only `.env.example` placeholders + the client-safe anon key belong anywhere near the client.
