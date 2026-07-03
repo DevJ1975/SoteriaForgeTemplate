@@ -9,18 +9,21 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "eas-build-post-install": "npm run build --workspace @soteria-forge/shared --prefix ../.."
   },
   "dependencies": {
     "@soteria-forge/shared": "^0.1.0",
     "@soteria-forge/ui": "^0.1.0",
     "@expo-google-fonts/barlow-semi-condensed": "^0.2.3",
     "@expo-google-fonts/oswald": "^0.2.3",
-    "@react-native-async-storage/async-storage": "2.1.2",
+    "@morrowdigital/watermelondb-expo-plugin": "^2.3.3",
+    "@react-native-async-storage/async-storage": "1.23.1",
     "@react-native-community/netinfo": "11.4.1",
     "@nozbe/watermelondb": "^0.28.0",
     "@supabase/supabase-js": "^2.45.0",
     "expo": "~52.0.0",
+    "expo-build-properties": "~0.13.2",
     "expo-constants": "~17.0.0",
     "expo-dev-client": "~5.0.0",
     "expo-font": "~13.0.0",

@@ -50,8 +50,38 @@ function createDatabase(): Database {
   return new Database({ adapter, modelClasses });
 }
 
-/** The one Database instance for the app's lifetime. */
-export const database: Database = createDatabase();
+let instance: Database | null = null;
+
+/** The one Database instance for the app's lifetime, created on first use. */
+export function getDatabase(): Database {
+  if (!instance) instance = createDatabase();
+  return instance;
+}
+
+/**
+ * Lazy singleton facade. The offline singletons (queue, sync, local store) are
+ * constructed at module scope on the app's boot path, so if the adapter were
+ * built eagerly here, a native-init failure (missing/broken WatermelonDB module
+ * in the dev client) would crash the app at import time — before any screen
+ * renders. This Proxy keeps the `database` export and its API intact while
+ * deferring adapter construction to the first actual USE, which happens inside
+ * the OfflineProvider's try/catch: a failed native init degrades to
+ * "offline store unavailable" instead of a boot crash.
+ */
+export const database: Database = new Proxy({} as Database, {
+  get(_target, prop) {
+    const db = getDatabase();
+    const value = Reflect.get(db as object, prop, db);
+    return typeof value === 'function' ? value.bind(db) : value;
+  },
+  set(_target, prop, value) {
+    Reflect.set(getDatabase() as object, prop, value);
+    return true;
+  },
+  has(_target, prop) {
+    return Reflect.has(getDatabase() as object, prop);
+  },
+});
 
 /**
  * Wipe the local store. Called on sign-out so a device never retains one

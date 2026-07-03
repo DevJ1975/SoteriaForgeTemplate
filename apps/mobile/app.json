@@ -6,7 +6,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "bundleIdentifier": "com.soteriaforge.learner",
@@ -28,6 +28,18 @@
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
+      "@morrowdigital/watermelondb-expo-plugin",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.24",
+            "packagingOptions": {
+              "pickFirst": ["**/libc++_shared.so"]
+            }
+          }
+        }
+      ],
       [
         "react-native-video",
         {
