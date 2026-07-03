@@ -16,6 +16,18 @@ export type {
   UseLessonResult,
   LessonDetail,
 } from './courseTree';
+export {
+  parseLessonContent,
+  scoreQuiz,
+  resolvePassingScore,
+  DEFAULT_PASSING_SCORE,
+} from './lessonContent';
+export type {
+  LessonContent,
+  QuizQuestion,
+  QuizChoice,
+  QuizScore,
+} from './lessonContent';
 export { useCertificates, useCertificate } from './certificates';
 export type {
   CertificateRecord,

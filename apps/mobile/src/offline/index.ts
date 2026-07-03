@@ -54,6 +54,10 @@ export type {
 // Local catalog read/hydrate
 export { localCourseStore, LocalCourseStore, courseModelToRecord } from './localStore';
 
+// Per-lesson quiz scratch state (resume + idempotent re-submit)
+export { quizStateStore, QuizStateStore } from './quizStore';
+export type { QuizStateSnapshot, QuizIdentity } from './quizStore';
+
 // Offline video download scaffold
 export { VideoDownloader } from './video';
 export type {

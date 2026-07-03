@@ -38,6 +38,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { completionQueue, COMPLETION_VERB_IDS } from '../offline';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { BackendNotConfiguredError } from './dataClient';
+import { parseLessonContent, type LessonContent } from './lessonContent';
 
 type CourseRow = Tables<'courses'>;
 type ModuleRow = Tables<'modules'>;
@@ -385,8 +386,12 @@ export interface LessonDetail {
   kind: LessonKind;
   durationMinutes: number;
   required: boolean;
-  /** True when this device has already locally recorded a completion for it. */
+  /** True when the caller is known (locally or server-side) to have completed it. */
   completed: boolean;
+  /** Parsed `lessons.content` (body text / quiz questions), safely degraded. */
+  content: LessonContent;
+  /** Row-level pass threshold (`lessons.passing_score`), when authored. */
+  passingScore?: number;
 }
 
 export interface UseLessonResult {
@@ -408,6 +413,10 @@ function lessonRowToDetail(row: LessonRow, completed: boolean): LessonDetail {
     durationMinutes: row.duration_minutes,
     required: row.required,
     completed,
+    // Defensive parse: absent/{}-default/malformed content degrades to "no
+    // renderable content" and the player falls back to mark-complete.
+    content: parseLessonContent(row.content),
+    passingScore: row.passing_score ?? undefined,
   };
 }
 
