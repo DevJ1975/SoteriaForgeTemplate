@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="sfEmber" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#F69A3C"/>
+      <stop offset="1" stop-color="#D8451A"/>
+    </linearGradient>
+    <linearGradient id="sfFlame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE6B0"/>
+      <stop offset="1" stop-color="#F8D38A"/>
+    </linearGradient>
+  </defs>
+  <!-- Maskable: full-bleed ink, shield shrunk to ~58% and centred so it stays
+       inside the maskable safe circle (radius 40% of canvas) under any mask. -->
+  <rect width="512" height="512" fill="#1A1D22"/>
+  <g transform="translate(78 72) scale(2.97)">
+    <path d="M60,12 L100,25 V58 C100,85 83,104 60,112 C37,104 20,85 20,58 V25 Z" fill="url(#sfEmber)"/>
+    <path d="M60,40 C64,55 77,59 77,74 C77,88 69,98 60,98 C51,98 43,88 43,74 C43,64 51,59 54,51 C55,55 58,54 58,47 C58,44 59,42 60,40 Z" fill="url(#sfFlame)"/>
+    <path d="M60,67 C61,74 67,77 67,83 C67,89 64,93 60,93 C56,93 53,89 53,83 C53,77 59,74 60,67 Z" fill="#E8551F"/>
+  </g>
+</svg>

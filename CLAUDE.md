@@ -19,7 +19,7 @@ files add local conventions; they never contradict this one.
 |------|------|-------|
 | `apps/mobile/` | React Native + Expo learner app (supabase-js client) | NEW |
 | `apps/console/` | Vue 3 admin / superadmin console (repointed at Supabase) | KEPT — must not break |
-| `apps/web/` | React + Vite learner/preview web app (browse + Cloudflare Stream playback) | NEW |
+| `apps/web/` | React + Vite learner/preview web app — installable **PWA** (browse + Cloudflare Stream playback) | NEW |
 | `packages/shared/` | domain types, xAPI schemas, Supabase DB types + tenant helpers | contract source |
 | `packages/ui/` | Soteria Forge React Native UI kit (ember/spark) | NEW |
 | `supabase/` | Supabase-as-code: `config.toml`, `migrations/`, `seed.sql` (mirrors the live project) | LIVE |

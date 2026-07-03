@@ -25,6 +25,7 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
 | [0007](./0007-supabase-backend.md) | Supabase (Postgres + RLS + Auth + Storage) replaces AWS/Amplify | Accepted |
 | [0008](./0008-certificates-and-video.md) | Auto-issued immutable certificates; Cloudflare Stream signed playback | Accepted |
 | [0009](./0009-unify-brand-ember-spark.md) | Unify the product brand on ember/spark (resolves 0006's open divergence) | Accepted |
+| [0010](./0010-web-installable-pwa.md) | `apps/web` is an installable PWA (app-shell offline; no auth/tenant caching) | Accepted |
 
 ## How these relate
 
@@ -59,6 +60,11 @@ disagree, one of them is a bug — reconcile deliberately, don't drift.
   Soteria Forge brand**. `packages/ui/src/theme.ts` is the canonical token
   source; `apps/web` + `apps/console` `tokens.css` mirror its values and stay
   byte-identical to each other.
+- **0010** makes `apps/web` an installable **PWA** (Workbox service worker,
+  app-shell precache). It leans on **0007**'s RLS: auth + tenant data are
+  deliberately never cached (Supabase + Cloudflare stay `NetworkOnly`), so the
+  offline story is shallow (shell only) and cannot leak one tenant's data to
+  another. Durable offline stays with `apps/mobile` per **0002**.
 
 ## Status values
 

@@ -820,3 +820,97 @@ code {
   width: 0.875rem;
   height: 0.875rem;
 }
+
+/* ── PWA: install button, offline bar, update toast ───────────────────── */
+
+.install-btn {
+  gap: var(--sf-space-1);
+}
+
+.install-btn svg {
+  flex: 0 0 auto;
+}
+
+/* iOS Add-to-Home hint — a small popover under the Install button. */
+.install-ios {
+  position: relative;
+  display: inline-flex;
+}
+
+.install-ios__tip {
+  position: absolute;
+  top: calc(100% + var(--sf-space-2));
+  right: 0;
+  z-index: 40;
+  width: max-content;
+  max-width: 15rem;
+  padding: var(--sf-space-3);
+  background: var(--sf-bg-surface);
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+  box-shadow: var(--sf-shadow-lg);
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-xs);
+  line-height: var(--sf-leading-normal);
+}
+
+/* Slim connectivity bar at the very top of the document when offline. */
+.pwa-offline-bar {
+  padding: var(--sf-space-2) var(--sf-space-6);
+  background: var(--sf-color-spark-100);
+  color: var(--sf-color-ink-800);
+  border-bottom: 1px solid var(--sf-color-spark-300);
+  font-size: var(--sf-text-sm);
+  text-align: center;
+}
+
+/* Update / offline-ready toast — floats above the sticky header. */
+.pwa-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--sf-space-6);
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: var(--sf-space-4);
+  max-width: calc(100vw - var(--sf-space-8));
+  padding: var(--sf-space-3) var(--sf-space-4);
+  background: var(--sf-bg-surface);
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-lg);
+  box-shadow: var(--sf-shadow-lg);
+  font-size: var(--sf-text-sm);
+}
+
+.pwa-toast__text {
+  color: var(--sf-text-primary);
+}
+
+.pwa-toast__actions {
+  display: inline-flex;
+  gap: var(--sf-space-2);
+  flex: 0 0 auto;
+}
+
+.btn--sm {
+  min-height: 2.25rem;
+  padding: 0 var(--sf-space-3);
+  font-size: var(--sf-text-xs);
+}
+
+@media (max-width: 640px) {
+  /* Keep the Install label from crowding the header on phones — icon only. */
+  .install-btn span {
+    display: none;
+  }
+
+  .pwa-toast {
+    left: var(--sf-space-4);
+    right: var(--sf-space-4);
+    bottom: var(--sf-space-4);
+    transform: none;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+}

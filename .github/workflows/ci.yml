@@ -109,3 +109,35 @@ jobs:
 
       - name: mobile — unit tests (node:test)
         run: npm run test --workspace @soteria-forge/mobile
+
+  # Type-check + production build of the React web PWA. `build` runs
+  # `tsc --noEmit && vite build`, so a green build here proves the app compiles
+  # AND that vite-plugin-pwa emits the service worker + manifest. Scoped install
+  # (web + shared), same workspace-prune as the mobile job and the web deploy.
+  verify-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the web toolchain (scoped to web + shared)
+        run: |
+          npm pkg delete workspaces
+          npm pkg set 'workspaces[]=apps/web' 'workspaces[]=packages/shared'
+          npm install --no-audit --no-fund
+
+      - name: shared — build (its dist/ declarations feed the web type-check)
+        run: npm run build --workspace @soteria-forge/shared
+
+      - name: web — type-check + production build (emits SW + manifest)
+        run: npm run build --workspace @soteria-forge/web
+
+      - name: web — assert the PWA artifacts were emitted
+        run: |
+          for f in sw.js manifest.webmanifest icon-512.png; do
+            test -f "apps/web/dist/$f" || { echo "::error::apps/web/dist/$f missing — PWA build incomplete"; exit 1; }
+          done
+          echo "PWA artifacts present: sw.js, manifest.webmanifest, icons"

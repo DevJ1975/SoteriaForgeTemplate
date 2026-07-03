@@ -1,31 +1,63 @@
 # `@soteria-forge/web` — React + Vite learner/preview surface
 
-A lightweight learner/preview web app: React 18 + Vite. A user signs in with **Supabase Auth**
+A lightweight learner/preview web app: React 18 + Vite, shipped as an **installable PWA**
+([ADR-0010](../../docs/adr/0010-web-installable-pwa.md)). A user signs in with **Supabase Auth**
 (email/password), browses **their tenant's** RLS-scoped courses/lessons, and plays video lessons
-with the official **Cloudflare Stream** player. This app is source-only — it has NOT been
-`npm install`ed, built, or deployed.
+with the official **Cloudflare Stream** player. Source-only in this repo (verify builds in a
+throwaway install, never here); the Vercel deploy builds it for real.
 
 Auto-included in the Turborepo via the root `apps/*` workspaces glob. See root `../../CLAUDE.md`
 for the shared contract. Mirrors `apps/console` conventions.
 
 ## Scope (deliberately narrow)
 
-Browse + play, nothing more. Offline sync, certificates, and content authoring intentionally stay
-in `apps/mobile` (learner) and `apps/console` (admin) — do not add them here. This is a preview
-surface where `@cloudflare/stream-react` fits natively (mobile is React Native, console is Vue, so
-neither can import that package).
+Browse + play, nothing more. Offline **sync**, certificates, and content authoring intentionally
+stay in `apps/mobile` (learner) and `apps/console` (admin) — do not add them here. This is a
+preview surface where `@cloudflare/stream-react` fits natively (mobile is React Native, console is
+Vue, so neither can import that package).
+
+## PWA (installable, app-shell offline)
+
+Ships via `vite-plugin-pwa` (Workbox), `registerType: 'prompt'` — an updated service worker
+**waits**; `src/pwa/PwaNotices` surfaces a "new version" toast and reloads only on user consent
+(never mid-lesson). The SW precaches the built app shell so a returning learner opens the app
+offline. **Auth + tenant data are NEVER cached** — Supabase (`*.supabase.co`) and Cloudflare
+Stream are explicit `NetworkOnly` routes in the Workbox config; caching an RLS response could
+serve one user's data to another after a session change, or serve stale training state. Offline =
+the shell renders; sign-in and fresh data still need the network (a connectivity bar + the
+screens' fetch-error states make that visible). Google Fonts are cached so the offline shell keeps
+its type. Manifest + icons live in `vite.config.ts` / `public/`; **iOS** needs the Apple `<meta>`
++ `apple-touch-icon` in `index.html` (it does not read the manifest for those). Icons are
+rasterized from the forged-shield SVGs (`public/icon{,-maskable}.svg`) — maskable keeps the mark
+inside the safe circle. `devOptions.enabled: false` keeps the SW out of `vite dev`.
+
+## Vercel deploy (config in `vercel.json`, not the dashboard)
+
+Same discipline as `apps/console`: the `installCommand` prunes the ephemeral clone's `workspaces`
+list to `apps/web` + `packages/shared` before `npm install` (npm resolves the FULL workspace tree
+even under `--workspace`, so an unrelated sibling's bad dep would otherwise sink this deploy);
+`buildCommand` builds `@soteria-forge/shared` then the web app; `framework` is pinned to `vite`.
+`build.env` carries the two **client-safe** values Vite inlines at build time (`VITE_SUPABASE_URL`
++ the `sb_publishable_…` key — RLS-protected, ships in the bundle by design; the service-role key
+never enters). `headers` set `must-revalidate` on `sw.js` + the manifest so updates propagate.
+`index.html` carries a boot-failure fallback that paints a readable error instead of a white page.
+CI's `verify-web` job builds the app and asserts the SW + manifest were emitted.
 
 ## Layout
 
 ```
 index.html               Vite entry (Google Fonts <link>s: Oswald + Barlow Semi Condensed, #root, /src/main.tsx)
-vite.config.ts           @vitejs/plugin-react; dev on :5182, preview on :4182 (host 0.0.0.0)
+vite.config.ts           @vitejs/plugin-react + VitePWA (manifest + Workbox SW); dev on :5182
 tsconfig.json            React (jsx react-jsx), strict, noEmit, moduleResolution Bundler
-vercel.json              SPA rewrite (all routes → /index.html)
+vercel.json              framework=vite, scoped install/build, VITE_SUPABASE_* build env,
+                         sw.js/manifest cache headers, SPA rewrite (see "Vercel deploy")
+public/                  favicon.svg + icon{,-maskable}.svg + rasterized PNG icons + apple-touch
 src/
   main.tsx               createRoot(...).render(<App/>) + imports theme/tokens.css, styles.css
-  App.tsx                shell: config banner / SignIn / (header: theme toggle + avatar chip +
-                         sign-out) + CourseList↔CourseDetail, with History-API URL sync
+  App.tsx                shell: config banner / SignIn / (header: install + theme toggle + avatar
+                         + sign-out) + CourseList↔CourseDetail, URL sync; mounts <PwaNotices/>
+  pwa/                   PWA UX: PwaNotices (SW register + update/offline toasts), InstallButton,
+                         useInstallPrompt, useOnlineStatus
   supabase.ts            typed createClient<Database>; isSupabaseConfigured (never throws at import)
   auth.tsx               AuthProvider + useAuth (tenantId + role from the caller's profile)
   api.ts                 RLS-scoped data layer (listCourses / getCourseTree) — the ONLY backend path
@@ -106,7 +138,9 @@ npm run typecheck  --workspace @soteria-forge/web   # tsc --noEmit
 npm run build      --workspace @soteria-forge/web   # tsc --noEmit && vite build
 ```
 
-Build `@soteria-forge/shared` first so its `dist/` declarations exist. Do **NOT** `npm install`,
-run vite/tsc, build, or deploy — author correct source only. No secrets — config via `.env`
-(git-ignored); only `.env.example` placeholders are tracked. Any change to how this app authorizes
-or scopes tenant data goes through **security-reviewer**.
+Build `@soteria-forge/shared` first so its `dist/` declarations exist. Do **NOT** `npm install` or
+build **in the repo** — author correct source only; CI (`verify-web`) and the Vercel deploy do the
+real install/build. No secrets — client config is the public URL + `sb_publishable_…` key (in
+`vercel.json` `build.env` and a git-ignored `.env`; only `.env.example` placeholders are tracked);
+the service-role key never appears here. Any change to how this app authorizes or scopes tenant
+data goes through **security-reviewer**.
