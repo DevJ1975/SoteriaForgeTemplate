@@ -134,6 +134,11 @@ function enrollmentRowToRecord(row: EnrollmentRow): EnrollmentRecord {
     userId: row.user_id,
     courseId: row.course_id,
     status,
+    // SERVER UNITS: `enrollments.progress` is an INTEGER PERCENT 0–100, written
+    // by the server trigger (migration 12). EnrollmentRecord carries it verbatim
+    // (the console renders it as `NN%` too); anything that needs the app-internal
+    // 0–1 display convention divides by 100 AT THAT BOUNDARY — see
+    // `assembleCourseTree`. Never treat this field as a 0–1 fraction.
     progress: row.progress,
     assignedAt: row.created_at,
     dueAt: row.due_at ?? undefined,
@@ -205,7 +210,15 @@ export function assembleCourseTree(params: {
 
   // The server enrollment.progress is authoritative once synced; take the max so
   // the bar never regresses (a locally-completed lesson can only ever add).
-  const serverProgress = enrollment ? Math.min(1, Math.max(0, enrollment.progress)) : 0;
+  //
+  // UNITS: enrollment.progress is the server's INTEGER PERCENT (0–100, from the
+  // migration-12 trigger); CourseTree.progress is the app-internal 0–1 fraction.
+  // The /100 here is THE conversion boundary — without it, any enrollment at
+  // ≥1% clamps to 1 and the course renders as 100% complete ("Certified" after
+  // a single lesson).
+  const serverProgress = enrollment
+    ? Math.min(1, Math.max(0, enrollment.progress / 100))
+    : 0;
   const progress = Math.max(localProgress, serverProgress);
 
   return { course, modules, enrollment, progress, lessons: flat };

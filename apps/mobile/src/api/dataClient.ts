@@ -91,6 +91,9 @@ function enrollmentRowToRecord(row: EnrollmentRow): EnrollmentRecord {
     userId: row.user_id,
     courseId: row.course_id,
     status: toEnrollmentStatus(row.status),
+    // SERVER UNITS: an INTEGER PERCENT 0–100 (written by the migration-12 server
+    // trigger), carried verbatim on EnrollmentRecord. Consumers needing the
+    // app-internal 0–1 fraction divide by 100 at their display boundary.
     progress: row.progress,
     // The DB tracks created_at + due/completed; there is no separate assigned/
     // started column, so we surface created_at as the assignment time.
