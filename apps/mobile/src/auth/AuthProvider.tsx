@@ -18,6 +18,14 @@
  *   session. If the profile is missing (a user with no profile / tenant) we do
  *   NOT invent a tenant — instead we surface a distinct `needs-profile` state so
  *   the app can route the user to the "join a tenant" (invite redemption) flow.
+ *
+ *   OFFLINE COLD-START: when a persisted VERIFIED session exists but the
+ *   profile read fails (airplane-mode relaunch), the identity is bridged from
+ *   a SecureStore cache of the last successful profile read, keyed by — and
+ *   validated against — that session's own user id (see profileCache.ts); any
+ *   mismatch discards the cache. The tenant still never comes from anywhere
+ *   but a verified-session-derived source, and it is re-projected from the
+ *   network the moment connectivity returns.
  *   Redemption itself never sends a tenant_id: `redeem_invitation` creates the
  *   profile server-side from the invite (validated against the verified email),
  *   and the tenant it lands on is decided entirely by Postgres, not the client.
@@ -35,8 +43,13 @@ import {
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { normalizeGroups, type CognitoGroup } from '@soteria-forge/shared';
 import { supabase, isSupabaseConfigured } from '../supabase';
-import { syncEngine } from '../offline';
+import { syncEngine, connectivity } from '../offline';
 import { resetDatabase } from '../db';
+import {
+  saveProfileProjection,
+  loadProfileProjection,
+  clearProfileProjection,
+} from './profileCache';
 
 /** Email/password credentials for sign-in. Tenancy is NEVER part of this input. */
 export interface SignInInput {
@@ -136,20 +149,23 @@ const SIGN_OUT_DRAIN_TIMEOUT_MS = 8_000;
 /**
  * Outcome of projecting a session, kept as a discriminated union so the caller
  * can set the RIGHT status (a missing profile is materially different from a
- * missing session):
+ * missing session, and both differ from a read that merely FAILED):
  *
- *   - `unauthenticated` — no session at all.
- *   - `needs-profile`   — verified session, but no profile row yet (must join a
- *                         tenant via invite redemption). We deliberately treat a
- *                         profile-read ERROR as `needs-profile` too, so a
- *                         signed-in user is never bounced back to sign-in on a
- *                         transient read failure — the Join screen surfaces the
- *                         retry affordance and RLS still guards everything.
- *   - `authenticated`   — verified session AND a profile with a tenant.
+ *   - `unauthenticated`      — no session at all.
+ *   - `needs-profile`        — verified session and the server AUTHORITATIVELY
+ *                              says there is no profile row / tenant yet (must
+ *                              join via invite redemption).
+ *   - `profile-unavailable`  — verified session but the profile READ FAILED
+ *                              (offline cold-start, transient outage). This is
+ *                              NOT an identity answer — the caller may bridge
+ *                              it with the verified-session-keyed cache, or
+ *                              fall back to the retry-able Join state.
+ *   - `authenticated`        — verified session AND a profile with a tenant.
  */
 type Projection =
   | { status: 'unauthenticated' }
   | { status: 'needs-profile' }
+  | { status: 'profile-unavailable' }
   | { status: 'authenticated'; user: AuthUser };
 
 /**
@@ -172,11 +188,12 @@ async function readProfile(authUser: SupabaseUser): Promise<Projection> {
 
   if (error) {
     if (__DEV__) {
-      console.warn('[auth] Failed to load profile — routing to join/retry.', error.message);
+      console.warn('[auth] Failed to load profile — will try cache/retry.', error.message);
     }
-    // Session is valid; a read error is not a sign-out. Keep the user in the
-    // signed-in-without-profile state where they can retry / redeem.
-    return { status: 'needs-profile' };
+    // Session is valid; a read error is not a sign-out AND not an identity
+    // answer. Surface it distinctly so the caller can bridge an offline
+    // cold-start with the verified-session-keyed cache.
+    return { status: 'profile-unavailable' };
   }
 
   // No profile row (or no tenant on it) → the user has not joined a tenant yet.
@@ -224,6 +241,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // can re-read the profile for the SAME session without an auth round trip.
   // This is set ONLY from Supabase auth events / getSession — never from input.
   const sessionRef = useRef<Session | null>(null);
+  // True while the current 'authenticated' state rests on the CACHED profile
+  // projection (offline cold-start) rather than a fresh network read. Drives
+  // the background re-projection when connectivity returns.
+  const usedCachedProfileRef = useRef(false);
 
   const applySession = useCallback(async (session: Session | null) => {
     const seq = ++projectionSeq.current;
@@ -231,15 +252,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const next = await projectSession(session);
     // A newer session change superseded this projection — drop the stale result.
     if (seq !== projectionSeq.current) return;
+
     if (next.status === 'authenticated') {
+      usedCachedProfileRef.current = false;
       setUser(next.user);
       setStatus('authenticated');
-    } else {
-      // needs-profile / unauthenticated both carry no usable AuthUser.
-      setUser(null);
-      setStatus(next.status);
+      // Refresh the offline cold-start cache from this fresh, RLS-scoped read
+      // (keyed by the verified session's own user id). Fire-and-forget.
+      void saveProfileProjection({
+        userId: next.user.userId,
+        tenantId: next.user.tenantId,
+        role: next.user.role,
+        displayName: next.user.displayName,
+        email: next.user.email,
+      });
+      return;
     }
+
+    if (next.status === 'profile-unavailable' && session?.user) {
+      // OFFLINE COLD-START BRIDGE: the session is verified but the profile
+      // read failed (no network / transient outage). Trust ONLY the cached
+      // projection keyed by THIS session's user id — loadProfileProjection
+      // discards any cache↔session mismatch — and re-project from the network
+      // in the background once connectivity returns (see the connectivity
+      // effect below). The tenant here still originates from a past verified,
+      // RLS-scoped read; RLS remains the real gate for every data access.
+      const cached = await loadProfileProjection(session.user.id);
+      if (seq !== projectionSeq.current) return;
+      if (cached) {
+        usedCachedProfileRef.current = true;
+        setUser({
+          userId: cached.userId,
+          username: cached.email ?? cached.userId,
+          email: cached.email,
+          displayName: cached.displayName,
+          tenantId: cached.tenantId,
+          groups: normalizeGroups([cached.role]),
+          role: cached.role,
+        });
+        setStatus('authenticated');
+        return;
+      }
+      // No trusted cache → keep the prior behavior: the signed-in-without-
+      // profile state, where the Join screen offers the retry affordance.
+      usedCachedProfileRef.current = false;
+      setUser(null);
+      setStatus('needs-profile');
+      return;
+    }
+
+    usedCachedProfileRef.current = false;
+    if (next.status === 'needs-profile' && session?.user) {
+      // AUTHORITATIVE absence: the server says this user has no profile — a
+      // stale cached projection must not survive to resurrect a tenant.
+      void clearProfileProjection(session.user.id);
+    }
+    // needs-profile / unauthenticated both carry no usable AuthUser.
+    setUser(null);
+    setStatus(next.status === 'unauthenticated' ? 'unauthenticated' : 'needs-profile');
   }, []);
+
+  // While authenticated FROM CACHE, re-project from the network the moment
+  // connectivity returns, so the bridge state is as short-lived as possible.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const unsubscribe = connectivity.subscribe((snap) => {
+      if (snap.isOnline && usedCachedProfileRef.current && sessionRef.current) {
+        void applySession(sessionRef.current);
+      }
+    });
+    return unsubscribe;
+  }, [applySession]);
 
   const refresh = useCallback(async () => {
     // No backend configured → nothing can be authenticated. Stay unauthenticated.
@@ -326,6 +409,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // An unopenable store must not block sign-out; the engine's identity
       // fence still prevents any leftover row from crossing identities.
+    }
+    // Drop the offline cold-start profile cache for the departing identity —
+    // a signed-out user leaves no projection behind. (Read from the session
+    // ref, not React state: this callback must not close over stale state.)
+    const departingUserId = sessionRef.current?.user?.id;
+    if (departingUserId) {
+      await clearProfileProjection(departingUserId);
     }
     try {
       await supabase.auth.signOut();
