@@ -11,6 +11,15 @@
     <meta property="og:description" content="Soteria Forge — browse and play your assigned safety training." />
     <meta property="og:type" content="website" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- PWA install metadata. The web app manifest <link> is injected by
+         vite-plugin-pwa at build; these cover the iOS/Apple side, which does
+         not read the manifest for the home-screen icon or standalone chrome. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="application-name" content="Soteria Forge" />
+    <meta name="apple-mobile-web-app-title" content="Soteria Forge" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -29,6 +38,31 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      /* Boot-failure fallback: if the module bundle throws before React mounts
+         (e.g. missing build-time VITE_SUPABASE_* config), paint a readable
+         message instead of a blank page. Removes itself once the app mounts. */
+      window.addEventListener('error', function (event) {
+        var root = document.getElementById('root')
+        if (!root || root.childElementCount > 0 || root.dataset.bootError) return
+        root.dataset.bootError = 'true'
+        root.innerHTML =
+          '<div role="alert" style="max-width:36rem;margin:4rem auto;padding:1.5rem;' +
+          "font-family:'Barlow Semi Condensed',system-ui,sans-serif;" +
+          'color:var(--sf-color-ink-800,#1A1D22);background:var(--sf-color-ink-100,#F1EEE8);' +
+          'border:1px solid var(--sf-color-ink-200,#E4DFD6);border-radius:12px">' +
+          '<h1 style="font-family:Oswald,system-ui,sans-serif;font-size:1.25rem;margin:0 0 .5rem">' +
+          'Soteria Forge failed to start</h1>' +
+          '<p style="margin:0 0 .75rem">The app hit an error before it could render. ' +
+          'This is usually a deployment configuration problem, not a data problem.</p>' +
+          '<pre style="white-space:pre-wrap;font-size:.8rem;background:var(--sf-color-ink-50,#FAF9F5);' +
+          'padding:.75rem;border-radius:8px;margin:0">' +
+          String((event.error && event.error.message) || event.message || 'Unknown error')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;') +
+          '</pre></div>'
+      })
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

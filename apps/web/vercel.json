@@ -1,4 +1,30 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd ../.. && npm pkg delete workspaces && npm pkg set 'workspaces[]=apps/web' 'workspaces[]=packages/shared' && npm install --no-audit --no-fund",
+  "buildCommand": "cd ../.. && npm run build --workspace @soteria-forge/shared && npm run build --workspace @soteria-forge/web",
+  "outputDirectory": "dist",
+  "build": {
+    "env": {
+      "VITE_SUPABASE_URL": "https://bgnadngztngkwzneknhd.supabase.co",
+      "VITE_SUPABASE_ANON_KEY": "sb_publishable_A8ekb2Fm8XwM2AP8t4FPEg_vWPhsjGQ"
+    }
+  },
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json; charset=utf-8" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",
