@@ -23,7 +23,7 @@ export { connectivity, useConnectivitySnapshot } from './netinfo';
 export type { ConnectivitySnapshot } from './netinfo';
 
 // Append-only completion-statement queue
-export { completionQueue, CompletionQueue, toCompletionRow } from './queue';
+export { completionQueue, CompletionQueue, toCompletionRow, REJECTED_MARKER } from './queue';
 export type { EnqueueCompletionInput, CompletionRowFields } from './queue';
 
 // Sync engine (idempotent, backoff, never drops the queue)

@@ -35,7 +35,7 @@ import type { Database } from '@nozbe/watermelondb';
 import type { XapiStatement } from '@soteria-forge/shared';
 import { statementIdempotencyKey } from '@soteria-forge/shared';
 import { database as defaultDatabase } from '../db';
-import { CompletionQueue } from './queue';
+import { CompletionQueue, REJECTED_MARKER } from './queue';
 import type { CompletionStatementModel } from '../db/models';
 import { connectivity } from './netinfo';
 import { supabase, isSupabaseConfigured } from '../supabase';
@@ -278,6 +278,13 @@ export class SyncEngine {
     if (this.running) return result; // a drain is already in flight
     this.running = true;
 
+    // Backoff bookkeeping for this drain: the timer's delay grows with the
+    // attempt count of the retryable rows, and no timer is armed at all once
+    // every retryable row has exhausted the policy's maxAttempts (give-up for
+    // TIMER-driven retries; see below).
+    let retryEligible = 0;
+    let maxRetryAttempt = 0;
+
     try {
       // IDENTITY FENCE (defense in depth for compliance records): resolve the
       // CURRENT session's auth user id once per drain. The server BEFORE INSERT
@@ -305,15 +312,30 @@ export class SyncEngine {
         const outcome = await this.uploadOne(row);
         if (outcome === 'acked') result.acked += 1;
         else if (outcome === 'rejected') result.rejected += 1;
-        else result.retryable += 1;
+        else {
+          result.retryable += 1;
+          // `row.attemptCount` reflects the post-attempt bookkeeping (uploadOne
+          // persisted the increment on this model instance).
+          if (row.attemptCount < this.policy.maxAttempts) {
+            retryEligible += 1;
+            maxRetryAttempt = Math.max(maxRetryAttempt, row.attemptCount);
+          }
+        }
       }
     } finally {
       this.running = false;
     }
 
-    // If anything is still pending, schedule a backoff retry using the max
-    // attempt count seen — bounded, jittered, and never dropping the queue.
-    if (result.retryable > 0) this.scheduleRetry();
+    // Schedule a backoff retry ONLY while some retryable row is still under the
+    // attempt cap, with a delay that GROWS with the attempt count (exponential,
+    // capped at policy.maxMs). Once every retryable row has exhausted
+    // maxAttempts, no timer is re-armed — that is the give-up: no infinite
+    // retry loop. The rows are NEVER dropped, though; they stay pending, and an
+    // event-driven drain (reconnect, a new enqueue, the sign-out flush) still
+    // gives them a chance — deliberate durability for compliance records.
+    // Permanently-rejected rows never reach here at all (pending() excludes
+    // them).
+    if (retryEligible > 0) this.scheduleRetry(maxRetryAttempt);
 
     return result;
   }
@@ -353,7 +375,9 @@ export class SyncEngine {
           r.attemptCount = r.attemptCount + 1;
           r.lastAttemptAt = now;
           if (outcome === 'rejected') {
-            r.lastError = 'rejected';
+            // Terminal: pending() excludes this marker, so the row stops
+            // re-uploading forever while remaining stored for inspection.
+            r.lastError = REJECTED_MARKER;
           } else {
             r.lastError = 'retryable';
           }
@@ -364,10 +388,15 @@ export class SyncEngine {
     return outcome;
   }
 
-  /** Schedule one jittered backoff retry of the whole drain. */
-  private scheduleRetry(): void {
+  /**
+   * Schedule one jittered backoff retry of the whole drain. `attempt` is the
+   * highest attempt count among the still-eligible retryable rows, so the delay
+   * GROWS exponentially drain over drain (base × factor^attempt, capped at
+   * policy.maxMs) instead of hammering on a fixed interval.
+   */
+  private scheduleRetry(attempt: number): void {
     if (this.retryTimer) return; // one retry armed at a time
-    const base = backoffDelayMs(1, this.policy);
+    const base = backoffDelayMs(attempt, this.policy);
     const jitter = Math.floor(Math.random() * (base * 0.25));
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;

@@ -113,6 +113,29 @@ export function toCompletionRow(
 }
 
 /**
+ * Terminal marker the sync engine writes to `last_error` when the server
+ * PERMANENTLY refuses a statement (RLS refusal / malformed payload — see
+ * sync.ts `outcomeForPostgrestCode`). Rows carrying it are KEPT in the store
+ * (append-only bookkeeping, inspectable for audit) but excluded from every
+ * pending read, so a row the server will never accept stops re-uploading
+ * forever. Transient failures record 'retryable' instead and stay pending.
+ */
+export const REJECTED_MARKER = 'rejected';
+
+/**
+ * Query clauses for "still uploadable" rows: unsynced AND not permanently
+ * rejected. The explicit `last_error is null OR last_error != 'rejected'`
+ * disjunction is deliberate — a plain not-equals over a nullable column risks
+ * excluding fresh rows (whose last_error is null) under SQL null semantics.
+ */
+function uploadableClauses(): Q.Where[] {
+  return [
+    Q.where('synced', false),
+    Q.or(Q.where('last_error', null), Q.where('last_error', Q.notEq(REJECTED_MARKER))),
+  ];
+}
+
+/**
  * The queue writer. Bound to a Database (defaults to the app singleton; tests
  * can inject a fake). All mutations funnel through here so "append-only" is
  * enforced in exactly one place.
@@ -184,10 +207,15 @@ export class CompletionQueue {
     return created;
   }
 
-  /** All not-yet-synced rows, oldest first (append order) — sync.ts drains these. */
+  /**
+   * All still-uploadable rows, oldest first (append order) — sync.ts drains
+   * these. Rows the server permanently rejected (last_error = 'rejected') are
+   * EXCLUDED so they stop re-uploading forever; they remain in the store for
+   * inspection (append-only bookkeeping — nothing is ever deleted).
+   */
   async pending(): Promise<CompletionStatementModel[]> {
     return this.collection
-      .query(Q.where('synced', false), Q.sortBy('enqueued_at', Q.asc))
+      .query(...uploadableClauses(), Q.sortBy('enqueued_at', Q.asc))
       .fetch();
   }
 
@@ -236,14 +264,18 @@ export class CompletionQueue {
     return completed;
   }
 
-  /** Count of unsynced rows — drives the OfflineBanner's pending badge. */
+  /**
+   * Count of rows still awaiting upload — drives the OfflineBanner's pending
+   * badge. Permanently-rejected rows are excluded (matching `pending()`): a row
+   * that will never sync must not read as "will sync when online" forever.
+   */
   async pendingCount(): Promise<number> {
-    return this.collection.query(Q.where('synced', false)).fetchCount();
+    return this.collection.query(...uploadableClauses()).fetchCount();
   }
 
-  /** Observable count of unsynced rows for reactive UI (no polling). */
+  /** Observable count of still-uploadable rows for reactive UI (no polling). */
   observePendingCount() {
-    return this.collection.query(Q.where('synced', false)).observeCount();
+    return this.collection.query(...uploadableClauses()).observeCount();
   }
 }
 
