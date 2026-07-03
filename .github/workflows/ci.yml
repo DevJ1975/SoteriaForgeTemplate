@@ -1,13 +1,14 @@
 name: CI
 
-# Phase-0 CI scope: the rebuild is defined-as-code and UNDEPLOYED. The React
-# Native workspace (apps/mobile) and packages/ui (the Soteria Forge UI kit, RN
-# source consumed via Metro), plus the web apps (apps/web React, apps/console Vue),
-# need framework toolchains + a lockfile that only exist after `npm install`, so
-# they can't be type-checked here yet. CI verifies the one workspace that IS
-# self-contained:
-#   - @soteria-forge/shared : the domain contract (type-check + unit tests)
-# As the apps/ui become installable (lockfile committed), extend the matrix.
+# CI scope:
+#   - verify-deps-resolve  : every workspace's dependency SPECS resolve (no install)
+#   - verify-foundation    : @soteria-forge/shared — the domain contract (type-check + tests)
+#   - verify-mobile        : apps/mobile — first real RN type-check + node:test unit suite,
+#                            over a workspace-scoped install (mobile + shared + ui only)
+# The web apps (apps/web React, apps/console Vue) are still checked at deploy time
+# (Vercel builds the console on every PR); extend the matrix as they gain CI needs.
+# No lockfile is committed (the repo stays defined-as-code), so the installing jobs
+# resolve caret ranges fresh each run.
 
 on:
   pull_request:
@@ -75,3 +76,36 @@ jobs:
           tsc || echo "tsc reported test-file type notes (expected without @types/node); dist emitted"
           test -f dist/index.js || { echo "::error::shared did not emit dist/index.js"; exit 1; }
           node --test "dist/**/*.test.js"
+
+  # First real type-check + unit tests for the React Native app. Needs the RN
+  # toolchain, so unlike the jobs above this one installs — but only the three
+  # workspaces the mobile check depends on (mobile + its shared/ui deps), by
+  # pruning the workspace list before install. That keeps the web apps out and
+  # keeps the install ~1 min. Same trick the console's Vercel deploy uses.
+  verify-mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the mobile toolchain (scoped to mobile + shared + ui)
+        run: |
+          # Prune the ephemeral clone's workspace list so npm installs only what
+          # the mobile type-check/tests need. No lockfile is committed, so this
+          # resolves caret ranges fresh — keep @supabase/supabase-js >= 2.50
+          # (see apps/mobile/BUILD.md) or the package-exports bundle breaks.
+          npm pkg delete workspaces
+          npm pkg set 'workspaces[]=apps/mobile' 'workspaces[]=packages/shared' 'workspaces[]=packages/ui'
+          npm install --no-audit --no-fund
+
+      - name: shared — build (its dist/ declarations feed the mobile type-check)
+        run: npm run build --workspace @soteria-forge/shared
+
+      - name: mobile — type-check
+        run: npm run typecheck --workspace @soteria-forge/mobile
+
+      - name: mobile — unit tests (node:test)
+        run: npm run test --workspace @soteria-forge/mobile
