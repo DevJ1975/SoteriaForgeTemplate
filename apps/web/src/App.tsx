@@ -25,6 +25,8 @@ import { applyTheme, getStoredTheme, setTheme, type ThemePreference } from './th
 import { SignIn } from './screens/SignIn'
 import { CourseList } from './screens/CourseList'
 import { CourseDetail } from './screens/CourseDetail'
+import { PwaNotices } from './pwa/PwaNotices'
+import { InstallButton } from './pwa/InstallButton'
 
 /**
  * Parse an open-course id out of the URL path (`/courses/:id`). The id is an
@@ -191,6 +193,7 @@ function Shell() {
           <span className="app-header__forge">FORGE</span>
         </div>
         <div className="app-header__right">
+          <InstallButton />
           <ThemeToggle />
           {identity ? (
             <span className="app-header__identity" title={user?.email ?? undefined}>
@@ -236,13 +239,19 @@ export function App() {
     applyTheme(getStoredTheme())
   }, [])
 
-  if (!isSupabaseConfigured) {
-    return <BackendNotConfigured />
-  }
   return (
-    <AuthProvider>
-      <Routes />
-    </AuthProvider>
+    <>
+      {/* Mounted regardless of auth/config state so the service worker registers
+          and offline/update notices always surface. */}
+      <PwaNotices />
+      {isSupabaseConfigured ? (
+        <AuthProvider>
+          <Routes />
+        </AuthProvider>
+      ) : (
+        <BackendNotConfigured />
+      )}
+    </>
   )
 }
 
