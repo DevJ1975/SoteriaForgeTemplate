@@ -28,6 +28,7 @@
  * (also loaded app-wide in index.ts).
  */
 import 'react-native-url-polyfill/auto';
+import { AppState } from 'react-native';
 import Constants from 'expo-constants';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@soteria-forge/shared/supabase';
@@ -89,4 +90,23 @@ if (!isSupabaseConfigured && __DEV__) {
       'copy apps/mobile/.env.example to .env and fill them in. The app boots, but every ' +
       'backend call will fail until the client is configured.',
   );
+}
+
+// AUTO-REFRESH ↔ APP LIFECYCLE (the documented supabase-js React Native
+// pattern): on RN there is no browser tab visibility, so supabase-js must be
+// told when the app is foregrounded/backgrounded. While active, the refresh
+// timer keeps the access token fresh (so a worker returning from hours in the
+// field doesn't hit an expired-JWT failure on their first sync); while
+// backgrounded the timer stops — the OS would throttle it anyway, and a
+// suspended ticker just drains battery. The listener lives here, next to the
+// client it controls, for the app's whole lifetime (never unsubscribed by
+// design — the client is a module singleton).
+if (isSupabaseConfigured) {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      supabase.auth.startAutoRefresh();
+    } else {
+      supabase.auth.stopAutoRefresh();
+    }
+  });
 }
