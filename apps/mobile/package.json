@@ -9,6 +9,7 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test \".test-dist/src/**/*.test.js\"",
     "lint": "expo lint",
     "eas-build-post-install": "npm run build --workspace @soteria-forge/shared --prefix ../.."
   },
