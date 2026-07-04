@@ -3,7 +3,7 @@ name: orchestrator
 description: >-
   Lead coordinator for the Soteria Forge swarm. Use PROACTIVELY at the start of any
   multi-package task to decompose the work, route each slice to the right specialist
-  subagent (aws-infra, api-data, mobile, video, offline-sync, console-web,
+  subagent (aws-infra, api-data, mobile, video, offline-sync, console-web, sfg-developer,
   security-reviewer, test-runner, docs), and hold the shared architecture contract.
   Does not write feature code itself — it plans, delegates, sequences, and integrates.
 tools: Read, Grep, Glob, Task, TodoWrite
@@ -53,7 +53,10 @@ slices, keep every subtree agreeing on the shared contract, and integrate the re
 3. **Delegate with the `Task` tool.** Give each subagent the contract excerpts it needs and an
    explicit boundary ("touch only `supabase/**`"). Prefer parallel slices when they are truly
    independent; sequence them when one produces a type/contract the next consumes
-   (e.g. supabase schema → shared types → mobile/console).
+   (e.g. supabase schema → shared types → mobile/console). Route a slice that fuses
+   engineering with EHS-compliance or adult-learning design judgment — or that spans several
+   packages as ONE coherent feature — to `sfg-developer`, and spawn it with `model: fable`
+   when the slice is architecture-, security-, or correctness-critical (its escalation rubric).
 4. **Gate on the invariants.** Any slice that touches data access, auth, sync, or storage MUST
    be followed by a `security-reviewer` pass BEFORE you consider it done. Any slice that
    changes code MUST end green under `test-runner`.

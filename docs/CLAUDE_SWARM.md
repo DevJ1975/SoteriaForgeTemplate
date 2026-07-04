@@ -49,6 +49,7 @@ Define these once as reusable agents (see §3). A role defined as a subagent can
 | `video` | Cloudflare Stream integration, `stream-signed-url` edge function, react-native-video, offline download | file edit, bash | Signed URLs scoped by tenant; `video_assets` metadata only |
 | `offline-sync` | WatermelonDB store, NetInfo layer, idempotent statement sync queue | file edit, bash, tests | The append-only / idempotent contract is its whole job |
 | `console-web` | Vue admin (repointed at Supabase), content-ops screens | file edit, bash | Reuses `packages/shared` types |
+| `sfg-developer` | Cross-domain feature slices fusing engineering + EHS compliance + adult-learning (andragogy) design; senior iOS/Android + JS/TS full-stack (React, RN, Vue), Postgres SQL, SaaS, Supabase/GCP, Python-tooling generalist; methodical debugger + continuous refactorer | file edit, bash | No exclusive subtree — works as a guest under each owner's conventions; spawn with `model: fable` (Fable 5, max deliberation) for frontier slices per its escalation rubric, inherited model otherwise |
 | `security-reviewer` | Tenant isolation (RLS), least-privilege keys, secrets, adversarial review | read-only + tests | Runs *against* other agents' work; can block a phase |
 | `test-runner` | Test generation + execution across packages | bash, test tools | Gate for "done" |
 | `docs` | Keeps the rebuild plan and `docs/adr/` current | file edit | Writes the ADR at the end of each phase |
