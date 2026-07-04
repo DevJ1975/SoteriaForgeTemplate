@@ -52,7 +52,7 @@ specialist if the code looks wrong).
 ## The swarm guide (`docs/CLAUDE_SWARM.md`)
 
 Keep it as the authoritative description of the roster (orchestrator, aws-infra, api-data,
-mobile, video, offline-sync, console-web, security-reviewer, test-runner, docs), each agent's
+mobile, video, offline-sync, console-web, sfg-developer, security-reviewer, test-runner, docs), each agent's
 ownership boundary and tool scope, the hooks/settings behavior (`.claude/settings.json` +
 `.claude/hooks/*`), and the standard workflow (decompose → delegate → security-review →
 test-gate → integrate). When an agent's definition in `.claude/agents/*.md` changes, update the
