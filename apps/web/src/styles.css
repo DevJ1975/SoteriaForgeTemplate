@@ -277,10 +277,58 @@ code {
 /* ── Sign-in ──────────────────────────────────────────────────────────── */
 
 .signin {
+  position: relative;
+  isolation: isolate; /* local stacking context for the layers below */
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: var(--sf-space-6);
+  overflow: hidden;
+  /* Fallback field if the jobsite photo is absent — a warm ember wash so the
+     screen still reads as intentional (never a blank/broken background). */
+  background: radial-gradient(
+    130% 130% at 22% 0%,
+    var(--sf-color-ember-500),
+    var(--sf-color-ember-700) 72%
+  );
+}
+
+/* The photo layer. `inset` bleed + slight scale mean the parallax drift never
+   exposes an edge. The offset vars are set by the pointer handler in SignIn and
+   default to 0 (so reduced-motion / touch just get a still, scaled image). */
+.signin__bg {
+  position: absolute;
+  inset: -24px;
+  z-index: -2;
+  background-image: url('/signin-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  transform: translate3d(var(--sf-parallax-x, 0), var(--sf-parallax-y, 0), 0) scale(1.06);
+  transition: transform var(--sf-dur-slow, 240ms) var(--sf-ease-out);
+  will-change: transform;
+}
+
+/* Video variant of the background layer — fills the same bled box, cover-fit. */
+.signin__bg--video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+/* "Subdued by an opaque orange": a strong ember wash over the photo — keeps the
+   jobsite legible as texture while making the screen unmistakably branded and
+   the sign-in card high-contrast. */
+.signin__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--sf-color-ember-700) 84%, transparent),
+    color-mix(in srgb, var(--sf-color-ember-500) 62%, transparent)
+  );
 }
 
 .signin__card {

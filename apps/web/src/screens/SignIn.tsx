@@ -5,7 +5,7 @@
  * derived server-side from the caller's profile after a successful sign-in
  * (see auth.tsx) — never typed here, never sent for authorization.
  */
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth'
 
 /** Pragmatic client-side shape check — Supabase Auth remains the real gate. */
@@ -23,6 +23,47 @@ export function SignIn() {
   const [showPassword, setShowPassword] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [submitting, setSubmitting] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Decide ONCE per mount whether the background is the looping jobsite video or
+  // the still photo — random, so the screen varies visit to visit. Never the
+  // video under reduced-motion (autoplaying motion is unwanted there).
+  const [useVideo] = useState(() => {
+    if (typeof window === 'undefined') return false
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+    return Math.random() < 0.5
+  })
+  // If the video can't load/decode, fall back to the still layer.
+  const [videoFailed, setVideoFailed] = useState(false)
+  const showVideo = useVideo && !videoFailed
+
+  // Subtle pointer parallax on the background photo — the layer drifts a few px
+  // opposite the cursor. Disabled for reduced-motion and coarse (touch)
+  // pointers, where there is no cursor to track and motion is unwanted.
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || typeof window === 'undefined') return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const finePointer = window.matchMedia('(pointer: fine)').matches
+    if (reduceMotion || !finePointer) return
+
+    let frame = 0
+    const MAX = 14 // px of drift at the viewport edge
+    const onMove = (event: MouseEvent) => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const nx = (event.clientX / window.innerWidth) * 2 - 1 // -1..1
+        const ny = (event.clientY / window.innerHeight) * 2 - 1
+        root.style.setProperty('--sf-parallax-x', `${(-nx * MAX).toFixed(1)}px`)
+        root.style.setProperty('--sf-parallax-y', `${(-ny * MAX).toFixed(1)}px`)
+      })
+    }
+    window.addEventListener('mousemove', onMove)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
 
   const validate = (): boolean => {
     const next: FieldErrors = {}
@@ -54,7 +95,28 @@ export function SignIn() {
   }
 
   return (
-    <div className="signin">
+    <div className="signin" ref={rootRef}>
+      {/* Full-bleed jobsite background (parallax layer) + ember scrim behind the
+          card. Randomly the looping video or the still photo. Decorative —
+          hidden from assistive tech. */}
+      {showVideo ? (
+        <video
+          className="signin__bg signin__bg--video"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          poster="/signin-bg.jpg"
+          aria-hidden="true"
+          onError={() => setVideoFailed(true)}
+        >
+          <source src="/signin-bg.mp4" type="video/mp4" />
+        </video>
+      ) : (
+        <div className="signin__bg" aria-hidden="true" />
+      )}
+      <div className="signin__scrim" aria-hidden="true" />
       <form className="card signin__card" onSubmit={onSubmit} noValidate>
         <div className="signin__brand">
           <span className="signin__brand-mark">SOTERIA</span>
