@@ -31,6 +31,20 @@ its type. Manifest + icons live in `vite.config.ts` / `public/`; **iOS** needs t
 rasterized from the forged-shield SVGs (`public/icon{,-maskable}.svg`) — maskable keeps the mark
 inside the safe circle. `devOptions.enabled: false` keeps the SW out of `vite dev`.
 
+## Sign-in background (jobsite photo / video + ember scrim)
+
+`SignIn` renders a full-bleed jobsite background behind the card, subdued by a strong ember scrim
+(`.signin__scrim`, `color-mix` ember wash) so the card stays high-contrast. On each load it
+**randomly** shows either the looping muted video (`public/signin-bg.mp4`, `autoplay/muted/loop/
+playsinline`) or the still (`public/signin-bg.jpg`, referenced from CSS); a slight **pointer
+parallax** drifts the layer a few px (set via `--sf-parallax-*` CSS vars). All motion is disabled
+under `prefers-reduced-motion` (→ always the still) and pointer parallax only runs for a fine
+pointer. If the video can't decode, `onError` falls back to the still; if `signin-bg.jpg` is
+absent, the still layer falls back to the ember gradient — so the screen is never broken. The
+video/photo are **not** precached (not in the Workbox globs) — the login screen needs the network
+anyway, and a 6.6 MB precache would bloat installs. (For scale, a jobsite clip is a candidate to
+move to Cloudflare Stream later; for now it ships from `public/`.)
+
 ## Vercel deploy (config in `vercel.json`, not the dashboard)
 
 Same discipline as `apps/console`: the `installCommand` prunes the ephemeral clone's `workspaces`
