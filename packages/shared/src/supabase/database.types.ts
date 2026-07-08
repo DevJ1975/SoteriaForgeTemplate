@@ -142,6 +142,7 @@ export type Database = {
           title: string
           topic: string | null
           updated_at: string
+          valid_for_days: number | null
         }
         Insert: {
           category?: string | null
@@ -158,6 +159,7 @@ export type Database = {
           title: string
           topic?: string | null
           updated_at?: string
+          valid_for_days?: number | null
         }
         Update: {
           category?: string | null
@@ -174,6 +176,7 @@ export type Database = {
           title?: string
           topic?: string | null
           updated_at?: string
+          valid_for_days?: number | null
         }
         Relationships: [
           {
@@ -187,6 +190,7 @@ export type Database = {
       }
       enrollments: {
         Row: {
+          cert_cycle_started_at: string
           completed_at: string | null
           course_id: string
           created_at: string
@@ -198,6 +202,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          cert_cycle_started_at?: string
           completed_at?: string | null
           course_id: string
           created_at?: string
@@ -209,6 +214,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          cert_cycle_started_at?: string
           completed_at?: string | null
           course_id?: string
           created_at?: string
