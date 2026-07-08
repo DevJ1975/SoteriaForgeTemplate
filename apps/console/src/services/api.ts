@@ -29,13 +29,14 @@ import type {
   CourseBundleDTO,
   CourseDTO,
   CourseModuleDTO,
+  LessonContent,
   LessonKind,
   ProductPackageDTO,
   TenantDTO,
   UserDTO,
   UserRole,
 } from '@soteria-forge/shared'
-import { GROUP_TO_USER_ROLE, isCognitoGroup } from '@soteria-forge/shared'
+import { GROUP_TO_USER_ROLE, isCognitoGroup, parseLessonContent } from '@soteria-forge/shared'
 import type {
   CertificateRow,
   CompletionStatementRow,
@@ -46,6 +47,7 @@ import type {
   EnrollmentRow,
   InvitationInsert,
   InvitationRow,
+  Json,
   LessonInsert,
   LessonRow,
   LessonUpdate,
@@ -98,6 +100,14 @@ export type CreateCourseInput = {
   status?: CourseDTO['status']
   durationMinutes?: number
   tags?: string[]
+  /**
+   * Certificate validity window in days (the recert lifecycle, migration 15).
+   * `undefined`/`null` = the certificate never expires — the default, and
+   * backward-compatible with every course authored before the recert lifecycle.
+   * A positive integer stamps `certificates.expires_at = issued_at + N days` at
+   * issuance and drives the daily recert sweep.
+   */
+  validForDays?: number | null
 }
 
 /** Mutable course-header columns for an edit. Every field is optional. */
@@ -108,6 +118,8 @@ export type UpdateCoursePatch = {
   status?: CourseDTO['status']
   durationMinutes?: number | null
   tags?: string[]
+  /** Certificate validity window in days; `null` = never expires (migration 15). */
+  validForDays?: number | null
 }
 
 /** Fields for adding a module under a course. `sequence` is caller-ordered. */
@@ -135,6 +147,15 @@ export type CreateLessonInput = {
   required: boolean
   sequence: number
   passingScore?: number
+  /**
+   * The typed `lessons.content` (long-form body + quiz questions) the mobile
+   * player renders. Omit to leave the server default (`'{}'::jsonb` → "no
+   * renderable content"). It is normalized through the SAME `parseLessonContent`
+   * the player uses, so a question the player would drop (fewer than 2 choices,
+   * or an unmatched `correctChoiceId`) is dropped here too — never silently
+   * persisted as unusable.
+   */
+  content?: LessonContent
 }
 
 /** Mutable lesson columns for an edit. */
@@ -146,6 +167,27 @@ export type UpdateLessonPatch = {
   required?: boolean
   sequence?: number
   passingScore?: number | null
+  /** The typed `lessons.content` to persist (normalized like `CreateLessonInput.content`). */
+  content?: LessonContent
+}
+
+/**
+ * Normalize an authored `LessonContent` into the exact JSON the mobile player
+ * will parse, by running it through the shared `parseLessonContent` (the SAME
+ * tolerant parser the player uses on read). This drops any question the player
+ * could not render AND score (fewer than 2 choices, or a `correctChoiceId` that
+ * matches no choice) BEFORE it is persisted, so an authored quiz is never
+ * silently dropped at play time. `undefined` in → `undefined` out (leave the
+ * column at its server default). Only the fields the contract defines are
+ * written; `body`/`passingScore` are omitted when absent.
+ */
+function lessonContentToJson(content: LessonContent | undefined): Json | undefined {
+  if (content === undefined) return undefined
+  const parsed = parseLessonContent(content)
+  const payload: Record<string, unknown> = { questions: parsed.questions }
+  if (parsed.body !== undefined) payload.body = parsed.body
+  if (parsed.passingScore !== undefined) payload.passingScore = parsed.passingScore
+  return payload as unknown as Json
 }
 
 /**
@@ -383,6 +425,8 @@ export type TranscriptRow = {
   issuedAt: string | null
   /** ISO certificate expiry, or null (no cert / non-expiring cert). */
   expiresAt: string | null
+  /** ISO certificate revocation timestamp, or null (no cert / not revoked). */
+  revokedAt: string | null
 }
 
 /** The embedded-relation shape for the transcript's enrollment read. */
@@ -875,6 +919,7 @@ export const consoleApi = {
       status: input.status ?? 'draft',
       duration_minutes: input.durationMinutes ?? null,
       tags: input.tags ?? [],
+      valid_for_days: input.validForDays ?? null,
     }
     const { data, error } = await supabase
       .from('courses')
@@ -897,6 +942,7 @@ export const consoleApi = {
     if (patch.status !== undefined) update.status = patch.status
     if (patch.durationMinutes !== undefined) update.duration_minutes = patch.durationMinutes
     if (patch.tags !== undefined) update.tags = patch.tags
+    if (patch.validForDays !== undefined) update.valid_for_days = patch.validForDays
 
     const { data, error } = await supabase
       .from('courses')
@@ -996,6 +1042,8 @@ export const consoleApi = {
       required: input.required,
       sequence: input.sequence,
       passing_score: input.passingScore ?? null,
+      // Normalized authored content; omitted (server default '{}') when none.
+      content: lessonContentToJson(input.content),
     }
     const { data, error } = await supabase
       .from('lessons')
@@ -1016,6 +1064,7 @@ export const consoleApi = {
     if (patch.required !== undefined) update.required = patch.required
     if (patch.sequence !== undefined) update.sequence = patch.sequence
     if (patch.passingScore !== undefined) update.passing_score = patch.passingScore
+    if (patch.content !== undefined) update.content = lessonContentToJson(patch.content)
 
     const { data, error } = await supabase
       .from('lessons')
@@ -1396,22 +1445,36 @@ export const consoleApi = {
 
     let certificateQuery = supabase
       .from('certificates')
-      .select('user_id, course_id, certificate_number, issued_at, expires_at')
+      .select('user_id, course_id, certificate_number, issued_at, expires_at, revoked_at')
+      // Newest first so, once recert history accumulates (migration 15 lets a
+      // (user, course) hold multiple dated certs), the CURRENT cert wins the
+      // per-pair index below rather than a lapsed earlier cycle.
+      .order('issued_at', { ascending: false })
     if (options.userId) certificateQuery = certificateQuery.eq('user_id', options.userId)
     if (options.courseId) certificateQuery = certificateQuery.eq('course_id', options.courseId)
     const { data: certificateData, error: certificateError } = await certificateQuery
     if (certificateError) fail('Unable to load transcript certificates', certificateError)
 
-    // Index certificates by (user_id, course_id) — unique per that pair.
+    // Index certificates by (user_id, course_id). A pair may now hold several
+    // dated certs (recert cycles); we index the FIRST seen per key, and the
+    // query is ordered newest-first, so this is the most recent cycle's cert.
     const certByKey = new Map<
       string,
-      { certificate_number: string; issued_at: string; expires_at: string | null }
+      {
+        certificate_number: string
+        issued_at: string
+        expires_at: string | null
+        revoked_at: string | null
+      }
     >()
     for (const cert of certificateData ?? []) {
-      certByKey.set(`${cert.user_id}:${cert.course_id}`, {
+      const key = `${cert.user_id}:${cert.course_id}`
+      if (certByKey.has(key)) continue
+      certByKey.set(key, {
         certificate_number: cert.certificate_number,
         issued_at: cert.issued_at,
         expires_at: cert.expires_at,
+        revoked_at: cert.revoked_at,
       })
     }
 
@@ -1432,6 +1495,7 @@ export const consoleApi = {
         certificateNumber: cert?.certificate_number ?? null,
         issuedAt: cert?.issued_at ?? null,
         expiresAt: cert?.expires_at ?? null,
+        revokedAt: cert?.revoked_at ?? null,
       }
     })
     transcript.sort(

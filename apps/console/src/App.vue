@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, type Ref } from 'vue'
-import { Album, AlertTriangle, Award, BarChart3, BookOpenCheck, Building2, CheckCircle2, ClipboardList, Clock, Copy, CopyPlus, Download, FileStack, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Play, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, Video, WandSparkles, X } from '@lucide/vue'
-import { normalizeTenantSlug, type CourseDTO, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
+import { Album, AlertTriangle, Award, BarChart3, BookOpenCheck, Building2, CalendarClock, CheckCircle2, ClipboardList, Clock, Copy, CopyPlus, Download, FileStack, FileText, FolderPlus, GraduationCap, KeyRound, LibraryBig, ListChecks, Loader, MailPlus, Play, Plus, RadioTower, RefreshCw, Rocket, ShieldCheck, TrendingUp, Trash2, UserPlus, Users, Video, WandSparkles, X } from '@lucide/vue'
+import { normalizeTenantSlug, parseLessonContent, type CourseDTO, type LessonContent, type LessonKind, type ProductPackageDTO, type TenantDTO, type UserDTO, type UserRole } from '@soteria-forge/shared'
 import forgeLogo from './assets/brand/logos/soteria-forge-horizontal.svg'
 import {
   consoleApi,
@@ -386,7 +386,8 @@ const LESSON_KIND_OPTIONS: readonly { value: LessonKind; label: string }[] = [
 const courseList = ref<CourseRow[]>([])
 const contentError = ref('')
 
-// New-course form.
+// New-course form. `validForDays` is the certificate validity window (recert
+// lifecycle, migration 15): blank/null = the certificate never expires.
 const newCourse = ref<CreateCourseInput & { tagsText: string }>({
   title: '',
   description: '',
@@ -395,7 +396,19 @@ const newCourse = ref<CreateCourseInput & { tagsText: string }>({
   durationMinutes: undefined,
   tags: [],
   tagsText: '',
+  validForDays: null,
 })
+
+/**
+ * Coerce a certificate-validity input into the value the service expects: a
+ * positive integer number of days, or null ("never expires"). An empty or
+ * non-positive input becomes null so blank always means "never".
+ */
+function normalizeValidForDays(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  const days = Number(value)
+  return Number.isFinite(days) && days > 0 ? Math.round(days) : null
+}
 
 // The currently-open course editor (its tree), or null when just listing.
 const selectedCourse = ref<CourseRow | null>(null)
@@ -440,6 +453,225 @@ function lessonsForModule(moduleId: string): LessonRow[] {
     .sort((a, b) => a.sequence - b.sequence)
 }
 
+// ── Course certificate validity (recert lifecycle, migration 15) ────────────────
+// The open course's `valid_for_days` — how long a freshly-issued certificate for
+// this course stays valid (blank/null = never expires). Editable in the course
+// editor; saved via updateCourse (no tenant is ever sent — RLS re-authorizes).
+const courseValidForDays = ref<number | null>(null)
+
+async function saveCourseValidity() {
+  if (!selectedCourse.value) return
+  contentError.value = ''
+  const raw = courseValidForDays.value
+  // Blank clears to "never expires"; a present value must be a positive integer.
+  const days = raw === null || (raw as unknown) === '' ? null : Number(raw)
+  if (days !== null && (!Number.isFinite(days) || days <= 0)) {
+    contentError.value = 'Certificate validity must be a positive number of days, or blank for never.'
+    return
+  }
+  try {
+    const { course } = await consoleApi.updateCourse(selectedCourse.value.id, {
+      validForDays: days === null ? null : Math.round(days),
+    })
+    selectedCourse.value = course
+    courseValidForDays.value = course.valid_for_days
+    courseList.value = courseList.value.map((row) => (row.id === course.id ? course : row))
+    status.value = `Updated certificate validity for ${course.title}`
+  } catch (error) {
+    contentError.value = error instanceof Error ? error.message : 'Unable to update course'
+  }
+}
+
+// ── Lesson content authoring (lessons.content — the shared LessonContent) ───────
+// A tenant-admin authors the typed content the mobile player renders: a long-form
+// body (reading/reflection for any kind) and repeatable quiz questions (prompt +
+// 2+ choices + a chosen correct answer). We mirror the shared parser's rules in
+// the UI (a question needs >=2 choices with text and a matching correctChoiceId)
+// so an authored quiz is never SILENTLY dropped at play time. On save the service
+// re-normalizes through the SAME `parseLessonContent`, and no tenant is ever sent
+// — RLS re-authorizes the write and the row keeps its server-stamped tenant.
+type ChoiceDraft = { id: string; text: string }
+type QuestionDraft = { id: string; prompt: string; choices: ChoiceDraft[]; correctChoiceId: string }
+type LessonContentDraft = { body: string; questions: QuestionDraft[]; passingScore: number | null }
+
+// Per-lesson editor state, keyed by lesson id (like the Stream-video maps).
+const contentDrafts = reactive<Record<string, LessonContentDraft>>({})
+const contentErrors = reactive<Record<string, string>>({})
+const contentSaving = reactive<Record<string, boolean>>({})
+const openContent = reactive<Record<string, boolean>>({})
+
+function newContentDraft(): LessonContentDraft {
+  return { body: '', questions: [], passingScore: null }
+}
+
+/** Read a lesson's content draft, defaulting to an empty one (callers seed first). */
+function contentDraftFor(lessonId: string): LessonContentDraft {
+  return contentDrafts[lessonId] ?? newContentDraft()
+}
+
+/** Next stable `q1`/`c1`-style id: max existing numeric suffix + 1 (unique after removals). */
+function nextSeqId(existing: string[], prefix: string): string {
+  let max = 0
+  for (const id of existing) {
+    const match = /(\d+)$/.exec(id)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  return `${prefix}${max + 1}`
+}
+
+/**
+ * Seed a lesson's content draft from its stored `content` (parsed with the SAME
+ * tolerant parser the player uses, so the editor shows exactly what will render).
+ * Called outside render (on open / after save), so the template only reads.
+ */
+function seedContentDraft(lesson: LessonRow) {
+  const parsed = parseLessonContent(lesson.content)
+  contentDrafts[lesson.id] = {
+    body: parsed.body ?? '',
+    questions: parsed.questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      choices: question.choices.map((choice) => ({ id: choice.id, text: choice.text })),
+      correctChoiceId: question.correctChoiceId,
+    })),
+    passingScore: parsed.passingScore ?? null,
+  }
+}
+
+/** A one-line summary of a lesson's authored content for the lesson row. */
+function lessonContentSummary(lesson: LessonRow): string {
+  const parsed = parseLessonContent(lesson.content)
+  const parts: string[] = []
+  if (parsed.body) parts.push('reading')
+  if (parsed.questions.length) {
+    parts.push(`${parsed.questions.length} question${parsed.questions.length === 1 ? '' : 's'}`)
+  }
+  return parts.length ? parts.join(' · ') : 'no content'
+}
+
+/** Toggle a lesson's content editor open/closed, seeding its draft on first open. */
+function toggleContentEditor(lesson: LessonRow) {
+  const open = !openContent[lesson.id]
+  openContent[lesson.id] = open
+  if (open && !contentDrafts[lesson.id]) seedContentDraft(lesson)
+}
+
+function addQuestion(lessonId: string) {
+  const draft = contentDrafts[lessonId]
+  if (!draft) return
+  const id = nextSeqId(draft.questions.map((question) => question.id), 'q')
+  // Start with the two choices the parser (and player) require at minimum.
+  draft.questions.push({
+    id,
+    prompt: '',
+    choices: [
+      { id: 'c1', text: '' },
+      { id: 'c2', text: '' },
+    ],
+    correctChoiceId: 'c1',
+  })
+}
+
+function removeQuestion(lessonId: string, questionId: string) {
+  const draft = contentDrafts[lessonId]
+  if (!draft) return
+  draft.questions = draft.questions.filter((question) => question.id !== questionId)
+}
+
+function addChoice(lessonId: string, questionId: string) {
+  const question = contentDrafts[lessonId]?.questions.find((q) => q.id === questionId)
+  if (!question) return
+  question.choices.push({ id: nextSeqId(question.choices.map((c) => c.id), 'c'), text: '' })
+}
+
+function removeChoice(lessonId: string, questionId: string, choiceId: string) {
+  const question = contentDrafts[lessonId]?.questions.find((q) => q.id === questionId)
+  if (!question) return
+  // Never drop below the 2 choices a scoreable question requires.
+  if (question.choices.length <= 2) return
+  question.choices = question.choices.filter((choice) => choice.id !== choiceId)
+  // If the removed choice was the answer, fall back to the first remaining one.
+  if (!question.choices.some((choice) => choice.id === question.correctChoiceId)) {
+    question.correctChoiceId = question.choices[0]?.id ?? ''
+  }
+}
+
+/**
+ * Normalize the content passing-score field to `number | null`. `v-model.number`
+ * leaves a blank input as `''` (an unparseable value) rather than `null`, so treat
+ * anything that is not a finite number as "unset" — blank means "fall back to the
+ * lesson row's passing_score, then DEFAULT_PASSING_SCORE".
+ */
+function normalizeContentPassingScore(value: LessonContentDraft['passingScore']): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** Mirror the parser's drop rules so a bad question is caught BEFORE it is saved. */
+function validateContentDraft(draft: LessonContentDraft): string | null {
+  for (const [index, question] of draft.questions.entries()) {
+    const label = `Question ${index + 1}`
+    if (!question.prompt.trim()) return `${label}: enter a prompt.`
+    const filled = question.choices.filter((choice) => choice.text.trim())
+    if (filled.length < 2) return `${label}: add at least two answer choices with text.`
+    if (!question.correctChoiceId || !filled.some((choice) => choice.id === question.correctChoiceId)) {
+      return `${label}: choose which answer is correct.`
+    }
+  }
+  // A content passing score is OPTIONAL (blank = unset). But an authored value of 0
+  // is a non-functional mastery gate — scoreQuiz always yields score >= 0, so a
+  // threshold of 0 makes every attempt "pass" and silently defeats the assessment.
+  // Require an authored score to be a whole number in 1..100; leave it blank to fall
+  // back to the lesson row's passing_score (then DEFAULT_PASSING_SCORE = 80).
+  const passingScore = normalizeContentPassingScore(draft.passingScore)
+  if (passingScore !== null && (!Number.isInteger(passingScore) || passingScore < 1 || passingScore > 100)) {
+    return 'Content passing score must be a whole number from 1 to 100, or left blank to use the lesson default.'
+  }
+  return null
+}
+
+/**
+ * Persist a lesson's authored content to `lessons.content`. Validates the draft
+ * against the parser's rules first, then sends a clean LessonContent (empty-text
+ * choices dropped). No tenant is sent — RLS re-authorizes; the service normalizes
+ * through the shared parser again. On success we replace the local row and re-seed
+ * the draft from the stored (normalized) content.
+ */
+async function saveLessonContent(lesson: LessonRow) {
+  const draft = contentDrafts[lesson.id]
+  if (!draft) return
+  contentErrors[lesson.id] = ''
+  const validationError = validateContentDraft(draft)
+  if (validationError) {
+    contentErrors[lesson.id] = validationError
+    return
+  }
+  const content: LessonContent = {
+    body: draft.body.trim() || undefined,
+    questions: draft.questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt.trim(),
+      choices: question.choices
+        .filter((choice) => choice.text.trim())
+        .map((choice) => ({ id: choice.id, text: choice.text.trim() })),
+      correctChoiceId: question.correctChoiceId,
+    })),
+    // Validation above guarantees this is either unset or a whole 1..100; coerce a
+    // blank field ('' from v-model.number) to unset rather than persisting 0.
+    passingScore: normalizeContentPassingScore(draft.passingScore) ?? undefined,
+  }
+  contentSaving[lesson.id] = true
+  try {
+    const { lesson: saved } = await consoleApi.updateLesson(lesson.id, { content })
+    editorLessons.value = editorLessons.value.map((row) => (row.id === saved.id ? saved : row))
+    seedContentDraft(saved)
+    status.value = `Saved content for ${saved.title}`
+  } catch (error) {
+    contentErrors[lesson.id] = error instanceof Error ? error.message : 'Unable to save lesson content'
+  } finally {
+    contentSaving[lesson.id] = false
+  }
+}
+
 async function loadCourses() {
   if (!canManageContent.value) {
     courseList.value = []
@@ -474,9 +706,10 @@ async function createCourse() {
       status: newCourse.value.status,
       durationMinutes: newCourse.value.durationMinutes,
       tags,
+      validForDays: normalizeValidForDays(newCourse.value.validForDays),
     })
     courseList.value = [course, ...courseList.value]
-    newCourse.value = { title: '', description: '', category: '', status: 'draft', durationMinutes: undefined, tags: [], tagsText: '' }
+    newCourse.value = { title: '', description: '', category: '', status: 'draft', durationMinutes: undefined, tags: [], tagsText: '', validForDays: null }
     status.value = `Created course ${course.title}`
     await openCourse(course)
   } catch (error) {
@@ -496,6 +729,8 @@ async function openCourse(course: CourseRow) {
     selectedCourse.value = tree.course
     editorModules.value = tree.modules
     editorLessons.value = tree.lessons
+    // Seed the course's certificate-validity editor from the stored column.
+    courseValidForDays.value = tree.course.valid_for_days
     // Seed one draft per module so the template only reads them (no mutate-on-render).
     for (const module of tree.modules) seedLessonDraft(module.id)
     // Hydrate the Stream-video link for each video lesson (RLS-scoped reads).
@@ -509,7 +744,13 @@ function closeCourse() {
   selectedCourse.value = null
   editorModules.value = []
   editorLessons.value = []
+  courseValidForDays.value = null
   for (const key of Object.keys(lessonDrafts)) delete lessonDrafts[key]
+  // Clear all lesson-content editor state from the closed course.
+  for (const key of Object.keys(contentDrafts)) delete contentDrafts[key]
+  for (const key of Object.keys(contentErrors)) delete contentErrors[key]
+  for (const key of Object.keys(contentSaving)) delete contentSaving[key]
+  for (const key of Object.keys(openContent)) delete openContent[key]
   // Clear all Stream-video editor state from the closed course.
   for (const key of Object.keys(videoDrafts)) delete videoDrafts[key]
   for (const key of Object.keys(lessonVideos)) delete lessonVideos[key]
@@ -573,7 +814,17 @@ async function addLesson(module: ModuleRow) {
       durationMinutes: Number(draft.durationMinutes) || 0,
       required: draft.required,
       sequence: lessonsForModule(module.id).length,
-      passingScore: draft.passingScore ?? undefined,
+      // A lesson passing_score of 0 (or any non-1..100) is a no-op mastery gate —
+      // scoreQuiz always yields >= 0, so 0 "passes" every attempt. Coerce it to unset
+      // (falls back to content passingScore, then DEFAULT_PASSING_SCORE = 80), mirroring
+      // the content-level guard in validateContentDraft.
+      passingScore:
+        typeof draft.passingScore === 'number' &&
+        Number.isInteger(draft.passingScore) &&
+        draft.passingScore >= 1 &&
+        draft.passingScore <= 100
+          ? draft.passingScore
+          : undefined,
     })
     editorLessons.value = [...editorLessons.value, lesson]
     // Reset this module's draft in place (keeps the reactive binding stable).
@@ -596,6 +847,11 @@ async function removeLesson(lesson: LessonRow) {
     delete lessonVideos[lesson.id]
     delete videoErrors[lesson.id]
     delete videoPreviews[lesson.id]
+    // Drop any lesson-content editor state tied to the removed lesson.
+    delete contentDrafts[lesson.id]
+    delete contentErrors[lesson.id]
+    delete contentSaving[lesson.id]
+    delete openContent[lesson.id]
     status.value = `Removed lesson ${lesson.title}`
   } catch (error) {
     contentError.value = error instanceof Error ? error.message : 'Unable to remove lesson'
@@ -965,9 +1221,12 @@ async function exportTranscriptCsv(
       'Certificate #',
       'Issued',
       'Expires',
+      'Certificate status',
     ]
     // Raw ISO timestamps (not localized) so the export is exact + machine-parseable
-    // for audit; empty string for a missing value rather than a display dash.
+    // for audit; empty string for a missing value rather than a display dash. The
+    // certificate status is the client-derived Valid/Expiring/Expired/Revoked label
+    // (blank when the course was never certified).
     const rows = transcript.map((row) => [
       row.workerName,
       row.workerEmail,
@@ -979,6 +1238,7 @@ async function exportTranscriptCsv(
       row.certificateNumber ?? '',
       row.issuedAt ?? '',
       row.expiresAt ?? '',
+      row.certificateNumber ? certificateStatus(row.expiresAt, row.revokedAt).label : '',
     ])
     const suffix = options.label ? `-${fileSafe(options.label)}` : ''
     downloadCsv(toCsv(header, rows), `training-transcript${suffix}.csv`)
@@ -1049,6 +1309,30 @@ function formatDate(iso: string | null): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+// ── Certificate expiry status (recert lifecycle, migration 15) ──────────────────
+// Derived CLIENT-SIDE from expires_at / revoked_at — the "expiring soon" soft
+// state is deliberately a UX concern (the migration leaves it out of the server
+// sweep, which only ever flips a hard-lapsed enrollment to 'expired'). Revoked
+// wins; then no expiry = Valid forever; then past-expiry = Expired; then within
+// the warning window = Expiring soon; else Valid.
+type CertStatusKey = 'valid' | 'expiring' | 'expired' | 'revoked'
+const CERT_EXPIRING_SOON_MS = 30 * 24 * 60 * 60 * 1000
+
+function certificateStatus(
+  expiresAt: string | null,
+  revokedAt: string | null,
+  now: Date = new Date(),
+): { key: CertStatusKey; label: string } {
+  if (revokedAt) return { key: 'revoked', label: 'Revoked' }
+  if (!expiresAt) return { key: 'valid', label: 'Valid' }
+  const expiresMs = new Date(expiresAt).getTime()
+  if (Number.isNaN(expiresMs)) return { key: 'valid', label: 'Valid' }
+  const nowMs = now.getTime()
+  if (expiresMs <= nowMs) return { key: 'expired', label: 'Expired' }
+  if (expiresMs - nowMs <= CERT_EXPIRING_SOON_MS) return { key: 'expiring', label: 'Expiring soon' }
+  return { key: 'valid', label: 'Valid' }
 }
 
 onMounted(async () => {
@@ -1403,6 +1687,10 @@ onMounted(async () => {
               Duration (minutes)
               <input v-model.number="newCourse.durationMinutes" type="number" min="0" placeholder="30" />
             </label>
+            <label>
+              Certificate valid for (days)
+              <input v-model.number="newCourse.validForDays" type="number" min="1" placeholder="blank = never expires" />
+            </label>
             <label class="content-form-wide">
               Description
               <textarea v-model="newCourse.description" rows="2" placeholder="What this course covers"></textarea>
@@ -1447,6 +1735,21 @@ onMounted(async () => {
             <button class="secondary-action content-close" type="button" @click="closeCourse">Close</button>
           </div>
 
+          <div class="content-course-validity">
+            <CalendarClock :size="16" aria-hidden="true" />
+            <label>
+              Certificate valid for (days)
+              <input v-model.number="courseValidForDays" type="number" min="1" placeholder="blank = never expires" />
+            </label>
+            <button class="secondary-action content-validity-save" type="button" @click="saveCourseValidity">
+              Save Validity
+            </button>
+            <p class="content-hint content-validity-hint">
+              Blank = the certificate never expires. Sets the recert window stamped on a certificate
+              when a worker completes this course.
+            </p>
+          </div>
+
           <div class="content-add-module">
             <label>
               New module title
@@ -1475,10 +1778,133 @@ onMounted(async () => {
                 <div class="content-lesson-row">
                   <ListChecks :size="14" aria-hidden="true" />
                   <span class="content-lesson-title">{{ lesson.title }}</span>
-                  <small>{{ lesson.kind }} · {{ lesson.duration_minutes }}m{{ lesson.required ? ' · required' : '' }}</small>
+                  <small>{{ lesson.kind }} · {{ lesson.duration_minutes }}m{{ lesson.required ? ' · required' : '' }} · {{ lessonContentSummary(lesson) }}</small>
+                  <button
+                    class="content-icon-btn content-content-btn"
+                    type="button"
+                    :class="{ 'content-content-btn-open': openContent[lesson.id] }"
+                    :title="openContent[lesson.id] ? 'Hide lesson content editor' : 'Edit lesson content (reading + quiz)'"
+                    @click="toggleContentEditor(lesson)"
+                  >
+                    <FileText :size="14" aria-hidden="true" />
+                    Content
+                  </button>
                   <button class="content-icon-btn" type="button" title="Remove lesson" @click="removeLesson(lesson)">
                     <Trash2 :size="14" aria-hidden="true" />
                   </button>
+                </div>
+
+                <!-- Lesson content editor (all kinds). Writes lessons.content as
+                     the shared LessonContent: a long-form body plus repeatable
+                     quiz questions (2+ choices, one marked correct). The UI mirrors
+                     the parser's drop rules so an authored quiz is never silently
+                     dropped. No tenant is sent — the row keeps its stamped tenant. -->
+                <div v-if="openContent[lesson.id]" class="content-lesson-content">
+                  <label class="content-body-field">
+                    Reading / body
+                    <textarea
+                      v-model="contentDraftFor(lesson.id).body"
+                      rows="4"
+                      placeholder="Long-form reading, procedure text, or a reflection prompt shown in the player."
+                    ></textarea>
+                  </label>
+
+                  <div class="content-quiz">
+                    <div class="content-quiz-head">
+                      <ListChecks :size="14" aria-hidden="true" />
+                      <span>Quiz questions</span>
+                      <button class="secondary-action content-quiz-add" type="button" @click="addQuestion(lesson.id)">
+                        <Plus :size="14" aria-hidden="true" />
+                        Add Question
+                      </button>
+                    </div>
+                    <p v-if="!contentDraftFor(lesson.id).questions.length" class="content-hint">
+                      No questions — this is a reading-only lesson. Add a question to make it a quiz.
+                    </p>
+
+                    <div
+                      v-for="(question, qIndex) in contentDraftFor(lesson.id).questions"
+                      :key="question.id"
+                      class="content-question"
+                    >
+                      <div class="content-question-head">
+                        <span class="content-question-index">Q{{ qIndex + 1 }}</span>
+                        <input
+                          v-model="question.prompt"
+                          type="text"
+                          class="content-question-prompt"
+                          placeholder="Question prompt"
+                          aria-label="Question prompt"
+                        />
+                        <button
+                          class="content-icon-btn"
+                          type="button"
+                          title="Remove question"
+                          @click="removeQuestion(lesson.id, question.id)"
+                        >
+                          <Trash2 :size="14" aria-hidden="true" />
+                        </button>
+                      </div>
+
+                      <div v-for="choice in question.choices" :key="choice.id" class="content-choice">
+                        <label class="content-choice-correct" title="Mark this as the correct answer">
+                          <input
+                            v-model="question.correctChoiceId"
+                            type="radio"
+                            :name="`correct-${lesson.id}-${question.id}`"
+                            :value="choice.id"
+                          />
+                          Correct
+                        </label>
+                        <input
+                          v-model="choice.text"
+                          type="text"
+                          class="content-choice-text"
+                          placeholder="Answer choice text"
+                          aria-label="Answer choice text"
+                        />
+                        <button
+                          class="content-icon-btn"
+                          type="button"
+                          title="Remove choice"
+                          :disabled="question.choices.length <= 2"
+                          @click="removeChoice(lesson.id, question.id, choice.id)"
+                        >
+                          <X :size="13" aria-hidden="true" />
+                        </button>
+                      </div>
+
+                      <button class="secondary-action content-choice-add" type="button" @click="addChoice(lesson.id, question.id)">
+                        <Plus :size="13" aria-hidden="true" />
+                        Add Choice
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="content-content-foot">
+                    <label class="content-passing-field">
+                      Content passing score %
+                      <input
+                        v-model.number="contentDraftFor(lesson.id).passingScore"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        placeholder="blank = use default"
+                      />
+                    </label>
+                    <span class="content-hint content-passing-hint">Optional, 1–100. Blank falls back to the lesson passing score (above), then 80%.</span>
+                    <button
+                      class="primary-action content-content-save"
+                      type="button"
+                      :disabled="contentSaving[lesson.id]"
+                      @click="saveLessonContent(lesson)"
+                    >
+                      <FileText :size="16" aria-hidden="true" />
+                      {{ contentSaving[lesson.id] ? 'Saving…' : 'Save Content' }}
+                    </button>
+                  </div>
+                  <p v-if="contentErrors[lesson.id]" class="content-error" role="alert">{{ contentErrors[lesson.id] }}</p>
                 </div>
 
                 <!-- Stream video field (video-kind lessons only). Paste the
@@ -1593,7 +2019,7 @@ onMounted(async () => {
                 <input v-model="lessonDraftFor(module.id).required" type="checkbox" />
                 Required
               </label>
-              <input v-model.number="lessonDraftFor(module.id).passingScore" type="number" min="0" max="100" placeholder="pass %" aria-label="Passing score" />
+              <input v-model.number="lessonDraftFor(module.id).passingScore" type="number" min="1" max="100" placeholder="pass %" aria-label="Passing score" />
               <button class="primary-action" type="button" @click="addLesson(module)">
                 <Plus :size="16" aria-hidden="true" />
                 Add Lesson
@@ -1886,6 +2312,8 @@ onMounted(async () => {
               <span role="columnheader">Worker</span>
               <span role="columnheader">Course</span>
               <span role="columnheader">Issued</span>
+              <span role="columnheader">Expires</span>
+              <span role="columnheader">Status</span>
             </div>
             <div v-for="cert in certificates" :key="cert.id" class="cert-row" role="row">
               <span class="cert-number" role="cell">
@@ -1911,6 +2339,15 @@ onMounted(async () => {
                 {{ cert.courseTitle }}
               </span>
               <span class="cert-date" role="cell">{{ formatDate(cert.issued_at) }}</span>
+              <span class="cert-date" role="cell">{{ formatDate(cert.expires_at) }}</span>
+              <span class="cert-status" role="cell">
+                <span
+                  class="cert-badge"
+                  :class="`cert-badge--${certificateStatus(cert.expires_at, cert.revoked_at).key}`"
+                >
+                  {{ certificateStatus(cert.expires_at, cert.revoked_at).label }}
+                </span>
+              </span>
             </div>
           </div>
         </section>

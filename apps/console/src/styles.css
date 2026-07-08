@@ -1037,6 +1037,145 @@ a:focus-visible {
   color: var(--sf-text-secondary);
 }
 
+/* ── Course certificate validity (recert lifecycle) ─────────────────────────── */
+.content-course-validity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-sm);
+  padding: 10px 12px;
+  background: var(--sf-bg-surface);
+}
+
+.content-course-validity > svg {
+  align-self: center;
+  color: var(--sf-color-ember-700);
+}
+
+.content-validity-save {
+  width: auto;
+}
+
+.content-validity-hint {
+  grid-column: 1 / -1;
+}
+
+/* ── Lesson content editor (body + quiz questions) ──────────────────────────── */
+.content-content-btn {
+  gap: 6px;
+  color: var(--sf-color-ember-700);
+}
+
+.content-content-btn:hover {
+  background: var(--sf-color-ember-50);
+}
+
+.content-content-btn-open {
+  color: var(--sf-color-ember-50);
+  background: var(--sf-color-ember-700);
+}
+
+.content-lesson-content {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-sm);
+  padding: 12px;
+  background: var(--sf-bg-surface);
+}
+
+.content-body-field,
+.content-passing-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 850;
+  color: var(--sf-text-secondary);
+}
+
+.content-quiz {
+  display: grid;
+  gap: 10px;
+}
+
+.content-quiz-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sf-text-primary);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.content-quiz-add {
+  width: auto;
+  margin-left: auto;
+}
+
+.content-question {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-sm);
+  padding: 10px;
+  background: var(--sf-bg-subtle);
+}
+
+.content-question-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-question-index {
+  font-weight: 900;
+  color: var(--sf-color-ember-700);
+}
+
+.content-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-choice-correct {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 900;
+  white-space: nowrap;
+  color: var(--sf-text-secondary);
+}
+
+.content-choice-correct input {
+  width: auto;
+}
+
+.content-choice-add {
+  width: auto;
+  justify-self: start;
+}
+
+.content-content-foot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.content-content-save {
+  width: auto;
+}
+
+.content-passing-hint {
+  align-self: center;
+}
+
 /* ── Stream video preview (linked video-kind lessons) ───────────────────── */
 .content-video-preview {
   display: grid;
@@ -1121,7 +1260,7 @@ a:focus-visible {
 
 .cert-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1.3fr) 120px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1.3fr) 108px 108px 118px;
   align-items: center;
   gap: 12px;
   border-radius: var(--sf-radius-sm);
@@ -1218,6 +1357,45 @@ a:focus-visible {
   color: var(--sf-text-muted);
 }
 
+/* ── Certificate expiry status badge (recert lifecycle) ─────────────────────── */
+.cert-status {
+  min-width: 0;
+}
+
+.cert-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--sf-radius-full);
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cert-badge--valid {
+  color: var(--sf-status-complete);
+  background: rgb(31 138 91 / 12%);
+}
+
+/* Warning-fill badges use ink text on the amber token (per token contract). */
+.cert-badge--expiring {
+  color: var(--sf-color-ink);
+  background: rgb(232 163 23 / 20%);
+}
+
+.cert-badge--expired {
+  color: var(--sf-status-expired);
+  background: rgb(192 57 43 / 12%);
+}
+
+.cert-badge--revoked {
+  color: var(--sf-text-muted);
+  background: var(--sf-bg-subtle);
+  border: 1px solid var(--sf-border-default);
+}
+
 @media (max-width: 980px) {
   .console-shell,
   .console-grid {
@@ -1296,12 +1474,15 @@ a:focus-visible {
     display: none;
   }
 
-  /* Stack the certificate register into number · worker · issued. */
+  /* Collapse the certificate register to number · worker · status; hide the
+     course, issued, and expires columns (still in the exported transcript CSV). */
   .cert-row {
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 96px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 118px;
   }
 
-  .cert-row span:nth-child(3) {
+  .cert-row span:nth-child(3),
+  .cert-row span:nth-child(4),
+  .cert-row span:nth-child(5) {
     display: none;
   }
 }
