@@ -139,6 +139,97 @@ export const COMPLETION_VERB_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Display status of a locally-recorded completion, for the learner's "My
+ * training record" screen. Derived purely from the row's local bookkeeping —
+ * never sent to or read from the server:
+ *   - 'synced'          — the server has accepted this statement (synced=true).
+ *   - 'needs-attention' — the server PERMANENTLY refused it (last_error ===
+ *                         REJECTED_MARKER); it will not auto-retry and needs a
+ *                         manual retry (see `CompletionQueue.retry`).
+ *   - 'waiting'         — anything else (fresh, or a transient failure still in
+ *                         the backoff/retry loop): it will sync on its own.
+ */
+export type CompletionRecordStatus = 'synced' | 'waiting' | 'needs-attention';
+
+/**
+ * Display-friendly, framework-free projection of ONE outbox row for the training
+ * record screen. Intentionally free of WatermelonDB/React types so the screen
+ * (mobile agent) and this read model share a plain data contract. The
+ * `statementId` is the client UUID (stable across retries — the idempotency
+ * key); `verbId`/`objectId`/`timestamp` come from the DENORMALIZED columns
+ * (written once at enqueue) so they survive even if the JSON payload is corrupt,
+ * while `lessonId`/`courseId` are read from the statement context when present.
+ */
+export interface CompletionRecordEntry {
+  /** Client-generated UUID = the statement's stable identity / idempotency key. */
+  statementId: string;
+  /** The xAPI verb IRI (e.g. `.../completed`). */
+  verbId: string;
+  /** The xAPI object IRI (the activity the statement is about). */
+  objectId: string;
+  /** `context.lesson_id`, when the statement carries one. */
+  lessonId?: string;
+  /** `context.course_id`, when the statement carries one. */
+  courseId?: string;
+  /** ISO-8601 ACTIVITY time (the moment of completion). */
+  timestamp: string;
+  /** Sync state for display (see CompletionRecordStatus). */
+  status: CompletionRecordStatus;
+}
+
+/** The minimal row surface the pure record projection reads. */
+interface RecordProjectionSource {
+  statementId: string;
+  verb: string;
+  objectId: string;
+  timestamp: string;
+  synced: boolean;
+  lastError?: string;
+  /** Parses the immutable JSON payload; may THROW on a corrupt row. */
+  readonly statement: XapiStatement;
+}
+
+/**
+ * Pure: derive the display status from a row's LOCAL bookkeeping only. Order
+ * matters — a synced row is 'synced' regardless of any stale last_error, and the
+ * terminal REJECTED_MARKER outranks the transient/fresh "waiting" default.
+ */
+export function deriveRecordStatus(
+  row: Pick<RecordProjectionSource, 'synced' | 'lastError'>,
+): CompletionRecordStatus {
+  if (row.synced) return 'synced';
+  if (row.lastError === REJECTED_MARKER) return 'needs-attention';
+  return 'waiting';
+}
+
+/**
+ * Pure: project one outbox row into a display entry. READ-ONLY (no mutation).
+ * `verbId`/`objectId`/`timestamp` come from the denormalized columns so a row
+ * with a corrupt JSON payload still renders (with no lesson/course context)
+ * rather than being dropped or blanking the whole list.
+ */
+export function toRecordEntry(row: RecordProjectionSource): CompletionRecordEntry {
+  let ctx: { course_id?: unknown; lesson_id?: unknown } = {};
+  try {
+    ctx = (row.statement.context ?? {}) as { course_id?: unknown; lesson_id?: unknown };
+  } catch {
+    // Corrupt local JSON — keep the row visible using its denormalized columns.
+    ctx = {};
+  }
+  const lessonId = typeof ctx.lesson_id === 'string' ? ctx.lesson_id : undefined;
+  const courseId = typeof ctx.course_id === 'string' ? ctx.course_id : undefined;
+  return {
+    statementId: row.statementId,
+    verbId: row.verb,
+    objectId: row.objectId,
+    ...(lessonId !== undefined ? { lessonId } : {}),
+    ...(courseId !== undefined ? { courseId } : {}),
+    timestamp: row.timestamp,
+    status: deriveRecordStatus(row),
+  };
+}
+
+/**
  * Query clauses for "still uploadable" rows: unsynced AND not permanently
  * rejected. The explicit `last_error is null OR last_error != 'rejected'`
  * disjunction is deliberate — a plain not-equals over a nullable column risks
@@ -281,6 +372,85 @@ export class CompletionQueue {
       completed.add(lessonId);
     }
     return completed;
+  }
+
+  /**
+   * The signed-in user's FULL completion history for the "My training record"
+   * screen — every one of their queued rows (synced, waiting, or needs-attention),
+   * mapped to the framework-free {@link CompletionRecordEntry} shape and sorted
+   * NEWEST-FIRST by activity timestamp.
+   *
+   * IDENTITY FENCE: `userId` is REQUIRED and must be the CURRENT verified
+   * session's auth user id — rows are filtered by their `user_id` column, exactly
+   * like `completedLessonIds`, so one worker's record can never render as
+   * another's on a shared device. An empty/absent id returns [] (never
+   * "everything").
+   *
+   * READ-ONLY: this never mutates a row, preserving the append-only contract. It
+   * is pure over the injected store, so it is unit-tested against the in-memory
+   * fake.
+   */
+  async recordEntries(userId: string): Promise<CompletionRecordEntry[]> {
+    if (!userId) return []; // no verified identity → nothing to show
+    const rows = await this.collection.query(Q.where('user_id', userId)).fetch();
+    const entries = rows.map((row) => toRecordEntry(row));
+    // Newest activity first. ISO-8601 strings sort lexicographically = chrono.
+    entries.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
+    return entries;
+  }
+
+  /**
+   * Observe the signed-in user's outbox rows so a screen can react to enqueue /
+   * sync / retry transitions without polling. Emits the current set immediately
+   * on subscribe. The caller maps each emission through `recordEntries(userId)`
+   * (or `toRecordEntry`) to render. Fenced by `user_id` like `recordEntries`.
+   *
+   * NOTE: this is the ONE reactive seam that needs the native store's `observe()`;
+   * the in-memory test fake does not implement it, so unit tests exercise the
+   * pure `recordEntries` path instead. It is still node-safe *code* (no `../db`
+   * import) — it only calls a method on the INJECTED collection.
+   */
+  observeUserRecords(userId: string) {
+    return this.collection.query(Q.where('user_id', userId)).observe();
+  }
+
+  /**
+   * Manually re-arm a stuck row for upload — the action behind the "Retry" button
+   * on a NEEDS-ATTENTION (permanently-rejected) statement.
+   *
+   * This is LOCAL BOOKKEEPING ONLY. It clears `last_error` and resets the attempt
+   * counters so the row re-enters the uploadable set (`pending()`), and it NEVER:
+   *   - touches the SERVER — the append-only `completion_statements` row is not
+   *     mutated, recreated, or deleted; a retry just lets the sync engine POST the
+   *     SAME statement again, and the upsert dedupes on the unchanged UUID.
+   *   - changes the statement's identity or payload — `statement_id`/`statement_json`
+   *     are @readonly, so the client UUID (the idempotency key) is preserved and
+   *     the re-upload stays idempotent.
+   *   - un-syncs an accepted row — a `synced` row is left untouched (returns false):
+   *     you cannot "retry" a statement the server already stored.
+   *
+   * Operates purely by `statementId`; the caller is responsible for the identity
+   * fence (only pass a statementId that belongs to the signed-in user — the
+   * training-record hook enforces this by only offering retry on entries it read
+   * for the current user). Returns true iff a row was re-armed.
+   *
+   * AFTER a successful retry the caller must trigger `syncEngine.syncNow()` to
+   * attempt the upload immediately (the reactive queue observer also kicks a
+   * drain, but calling it explicitly is the responsive path).
+   */
+  async retry(statementId: string): Promise<boolean> {
+    const row = await this.findByStatementId(statementId);
+    if (!row) return false;
+    if (row.synced) return false; // never un-sync an already-accepted statement
+    await this.db.write(async () => {
+      await row.update((r) => {
+        // Clear the failure marker + reset backoff so pending() picks it up again.
+        r.lastError = undefined;
+        r.attemptCount = 0;
+        r.lastAttemptAt = undefined;
+      });
+    });
+    return true;
   }
 
   /**
