@@ -9,12 +9,24 @@ throwaway install, never here); the Vercel deploy builds it for real.
 Auto-included in the Turborepo via the root `apps/*` workspaces glob. See root `../../CLAUDE.md`
 for the shared contract. Mirrors `apps/console` conventions.
 
-## Scope (deliberately narrow)
+## Scope (browse + play + record completions)
 
-Browse + play, nothing more. Offline **sync**, certificates, and content authoring intentionally
-stay in `apps/mobile` (learner) and `apps/console` (admin) — do not add them here. This is a
-preview surface where `@cloudflare/stream-react` fits natively (mobile is React Native, console is
-Vue, so neither can import that package).
+Browse, play, **and record lesson completions** ([ADR-0011](../../docs/adr/0011-web-completion-recording.md)).
+Kiosk/desktop training now earns credit, so the compliance record no longer splits by device: this
+surface records xAPI completions **identically to `apps/mobile`** — same shared
+`createCompletionStatement` (client UUID = idempotency key), same append-only outbox drained by an
+idempotent `upsert(..., { onConflict: 'id', ignoreDuplicates: true })`, same
+`context: { course_id, lesson_id }` the migration-12 progress trigger reads. The outbox is a
+browser-native **IndexedDB** store (`src/offline/**`) — never a Workbox runtime cache — so it
+persists a learner's own outbound writes without ever caching an RLS response.
+
+**Certificates and content authoring still live elsewhere** (certificates: `apps/mobile`/backend;
+authoring: `apps/console`) — do not add them here. `@cloudflare/stream-react` still fits this
+surface natively (mobile is React Native, console is Vue, so neither can import that package).
+
+Design tokens, tenant isolation, and the "never cache RLS responses" PWA rule are unchanged and
+still binding; the outbox honors the last one by living in IndexedDB, and Supabase remains an
+explicit Workbox `NetworkOnly` route (never added to a runtime cache).
 
 ## PWA (installable, app-shell offline)
 
@@ -74,8 +86,13 @@ src/
                          useInstallPrompt, useOnlineStatus
   supabase.ts            typed createClient<Database>; isSupabaseConfigured (never throws at import)
   auth.tsx               AuthProvider + useAuth (tenantId + role from the caller's profile)
-  api.ts                 RLS-scoped data layer (listCourses / getCourseTree) — the ONLY backend path
-  components/            StreamWebPlayer (Cloudflare Stream via stream-signed-url edge function)
+  api.ts                 RLS-scoped data layer (listCourses / getCourseTree; lessons carry parsed
+                         content) — the ONLY backend read path
+  offline/               completion recording (ADR-0011): outboxCore (pure logic), outbox
+                         (IndexedDB store), transport (Supabase upsert — mirrors mobile), sync
+                         (WebSyncEngine), OutboxProvider (React context: recordCompletion + counts)
+  components/            StreamWebPlayer (Cloudflare Stream via stream-signed-url edge function),
+                         LessonPlayer (body/quiz/mark-complete), QuizView (local scoring), SyncStatus
   screens/               SignIn, CourseList, CourseDetail
   theme/theme.ts         sf-theme preference module (getStoredTheme / applyTheme / setTheme)
   theme/tokens.css       --sf-* design tokens (VALUE-identical mirror of apps/console; canonical

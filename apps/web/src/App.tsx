@@ -27,6 +27,8 @@ import { CourseList } from './screens/CourseList'
 import { CourseDetail } from './screens/CourseDetail'
 import { PwaNotices } from './pwa/PwaNotices'
 import { InstallButton } from './pwa/InstallButton'
+import { OutboxProvider } from './offline/OutboxProvider'
+import { SyncStatus } from './components/SyncStatus'
 
 /**
  * Parse an open-course id out of the URL path (`/courses/:id`). The id is an
@@ -186,37 +188,43 @@ function Shell() {
   const identity = user?.displayName ?? user?.email ?? null
 
   return (
-    <div className="shell">
-      <header className="app-header">
-        <div className="app-header__brand">
-          <span className="app-header__mark">SOTERIA</span>
-          <span className="app-header__forge">FORGE</span>
-        </div>
-        <div className="app-header__right">
-          <InstallButton />
-          <ThemeToggle />
-          {identity ? (
-            <span className="app-header__identity" title={user?.email ?? undefined}>
-              <span className="avatar-chip" aria-hidden="true">
-                {initialsOf(identity)}
+    // OutboxProvider owns the durable completion outbox + sync engine for the
+    // signed-in surface; it sits INSIDE AuthProvider so identity is always the
+    // verified session's. SyncStatus + the learning surfaces read its context.
+    <OutboxProvider>
+      <div className="shell">
+        <header className="app-header">
+          <div className="app-header__brand">
+            <span className="app-header__mark">SOTERIA</span>
+            <span className="app-header__forge">FORGE</span>
+          </div>
+          <div className="app-header__right">
+            <SyncStatus />
+            <InstallButton />
+            <ThemeToggle />
+            {identity ? (
+              <span className="app-header__identity" title={user?.email ?? undefined}>
+                <span className="avatar-chip" aria-hidden="true">
+                  {initialsOf(identity)}
+                </span>
+                <span className="app-header__user">{identity}</span>
               </span>
-              <span className="app-header__user">{identity}</span>
-            </span>
-          ) : null}
-          <button type="button" className="btn btn--ghost" onClick={() => void signOut()}>
-            Sign out
-          </button>
-        </div>
-      </header>
+            ) : null}
+            <button type="button" className="btn btn--ghost" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          </div>
+        </header>
 
-      <main className="app-main">
-        {openCourseId ? (
-          <CourseDetail courseId={openCourseId} onBack={closeCourse} />
-        ) : (
-          <CourseList onOpenCourse={openCourse} focusHeadingOnLoad={hasNavigated} />
-        )}
-      </main>
-    </div>
+        <main className="app-main">
+          {openCourseId ? (
+            <CourseDetail courseId={openCourseId} onBack={closeCourse} />
+          ) : (
+            <CourseList onOpenCourse={openCourse} focusHeadingOnLoad={hasNavigated} />
+          )}
+        </main>
+      </div>
+    </OutboxProvider>
   )
 }
 

@@ -4,10 +4,12 @@
  * Loads via `getCourseTree(courseId)`, which is RLS-scoped (NO tenant_id sent), so
  * a courseId can only ever resolve within the caller's tenant — an unknown or
  * foreign id (e.g. from a pasted/deep-linked URL) renders the not-found state.
- * Selecting a video lesson mounts <StreamWebPlayer/>, which fetches a
- * tenant-checked signed token from the `stream-signed-url` edge function.
- * Non-video lessons show a simple content placeholder (this preview surface
- * plays video; richer content lives in the mobile app).
+ * Selecting a lesson mounts <LessonPlayer/>: video plays via <StreamWebPlayer/>
+ * (a tenant-checked signed token from the `stream-signed-url` edge function),
+ * document/reflection render their body, and a quiz is scored on-device — each
+ * kind recording an append-only xAPI completion through the outbox (ADR-0011).
+ * The outline reflects a completion the instant it is recorded (local outbox),
+ * before it reaches the server.
  */
 import {
   useCallback,
@@ -17,9 +19,10 @@ import {
   useState,
   type ReactElement,
 } from 'react'
-import type { LessonKind, LessonRecord } from '@soteria-forge/shared'
-import { getCourseTree, type CourseTree } from '../api'
-import { StreamWebPlayer } from '../components/StreamWebPlayer'
+import type { LessonKind } from '@soteria-forge/shared'
+import { getCourseTree, type CourseTree, type LessonWithContent } from '../api'
+import { LessonPlayer } from '../components/LessonPlayer'
+import { useOutbox } from '../offline/OutboxProvider'
 
 export interface CourseDetailProps {
   courseId: string
@@ -103,6 +106,11 @@ export function CourseDetail({ courseId, onBack }: CourseDetailProps) {
   const [backendPending, setBackendPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null)
+  // Lesson ids this learner has locally completed (append-only outbox), so a
+  // just-recorded completion shows the instant it is enqueued — before the
+  // server confirms. Re-read whenever the outbox changes (completionVersion).
+  const { getCompletedLessonIds, completionVersion } = useOutbox()
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set())
   const headingRef = useRef<HTMLHeadingElement>(null)
   // Monotonic request sequence: a response superseded by a retry, a courseId
   // change, or unmount is dropped instead of clobbering newer state.
@@ -145,7 +153,34 @@ export function CourseDetail({ courseId, onBack }: CourseDetailProps) {
     if (!loading && tree) headingRef.current?.focus()
   }, [loading, tree])
 
-  const selectedLesson: LessonRecord | null = useMemo(() => {
+  // Read the learner's locally-completed lesson ids for this course; refresh
+  // whenever the outbox changes (a new completion enqueued or a drain).
+  useEffect(() => {
+    let active = true
+    getCompletedLessonIds(courseId)
+      .then((ids) => {
+        if (active) setCompletedIds(ids)
+      })
+      .catch(() => {
+        /* Outbox unavailable — leave the last known set; never blank the UI. */
+      })
+    return () => {
+      active = false
+    }
+  }, [courseId, completionVersion, getCompletedLessonIds])
+
+  // Optimistically flag a lesson complete the moment it is recorded, so the
+  // outline check appears before the async outbox re-read lands.
+  const markLocallyComplete = useCallback((lessonId: string) => {
+    setCompletedIds((prev) => {
+      if (prev.has(lessonId)) return prev
+      const next = new Set(prev)
+      next.add(lessonId)
+      return next
+    })
+  }, [])
+
+  const selectedLesson: LessonWithContent | null = useMemo(() => {
     if (!tree || !selectedLessonId) return null
     return tree.lessons.find((l) => l.id === selectedLessonId) ?? null
   }, [tree, selectedLessonId])
@@ -204,19 +239,14 @@ export function CourseDetail({ courseId, onBack }: CourseDetailProps) {
 
           <div className="course-detail__body">
             <div className="course-detail__player">
-              {selectedLesson && selectedLesson.kind === 'video' ? (
-                <div className="video-frame">
-                  <StreamWebPlayer lessonId={selectedLesson.id} />
-                </div>
-              ) : selectedLesson ? (
-                <div className="video-frame video-frame--placeholder">
-                  <div className="content-placeholder">
-                    <p className="content-placeholder__kind">{selectedLesson.kind}</p>
-                    <p>
-                      This lesson isn’t a video. Open it in the Soteria Forge app to complete it.
-                    </p>
-                  </div>
-                </div>
+              {selectedLesson ? (
+                <LessonPlayer
+                  // Remount per lesson so player + quiz state reset cleanly on switch.
+                  key={selectedLesson.id}
+                  lesson={selectedLesson}
+                  completed={completedIds.has(selectedLesson.id)}
+                  onCompleted={() => markLocallyComplete(selectedLesson.id)}
+                />
               ) : (
                 <div className="video-frame video-frame--placeholder">
                   <div className="content-placeholder">
@@ -224,14 +254,6 @@ export function CourseDetail({ courseId, onBack }: CourseDetailProps) {
                   </div>
                 </div>
               )}
-              {selectedLesson ? (
-                <div className="lesson-meta">
-                  <h2 className="lesson-meta__title">{selectedLesson.title}</h2>
-                  {selectedLesson.description ? (
-                    <p className="lesson-meta__desc">{selectedLesson.description}</p>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
 
             <nav className="course-detail__outline" aria-label="Lessons">
@@ -242,37 +264,62 @@ export function CourseDetail({ courseId, onBack }: CourseDetailProps) {
                   <div key={module.id} className="module-block">
                     <h3 className="module-block__title">{module.title}</h3>
                     <ul className="lesson-list">
-                      {module.lessons.map((lesson) => (
-                        <li key={lesson.id}>
-                          <button
-                            type="button"
-                            className="lesson-item"
-                            data-active={lesson.id === selectedLessonId}
-                            aria-current={lesson.id === selectedLessonId ? 'true' : undefined}
-                            onClick={() => setSelectedLessonId(lesson.id)}
-                          >
-                            <span className="lesson-item__kind" data-kind={lesson.kind}>
-                              <KindIcon kind={lesson.kind} />
-                            </span>
-                            <span className="lesson-item__title">{lesson.title}</span>
-                            <span className="lesson-item__meta">
-                              {lesson.durationMinutes > 0 ? (
-                                <span className="lesson-item__duration">
-                                  ~{lesson.durationMinutes} min
-                                </span>
-                              ) : null}
-                              {lesson.required ? (
-                                <span
-                                  className="lesson-item__required"
-                                  title="Required to complete this course"
-                                >
-                                  Required
-                                </span>
-                              ) : null}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
+                      {module.lessons.map((lesson) => {
+                        const done = completedIds.has(lesson.id)
+                        return (
+                          <li key={lesson.id}>
+                            <button
+                              type="button"
+                              className="lesson-item"
+                              data-active={lesson.id === selectedLessonId}
+                              data-completed={done}
+                              aria-current={lesson.id === selectedLessonId ? 'true' : undefined}
+                              onClick={() => setSelectedLessonId(lesson.id)}
+                            >
+                              <span className="lesson-item__kind" data-kind={lesson.kind}>
+                                {done ? (
+                                  <svg
+                                    className="kind-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden="true"
+                                    focusable="false"
+                                  >
+                                    <path d="M20 6 9 17l-5-5" />
+                                  </svg>
+                                ) : (
+                                  <KindIcon kind={lesson.kind} />
+                                )}
+                              </span>
+                              <span className="lesson-item__title">{lesson.title}</span>
+                              <span className="lesson-item__meta">
+                                {done ? (
+                                  <span className="lesson-item__done" title="Completed">
+                                    Completed
+                                  </span>
+                                ) : null}
+                                {lesson.durationMinutes > 0 ? (
+                                  <span className="lesson-item__duration">
+                                    ~{lesson.durationMinutes} min
+                                  </span>
+                                ) : null}
+                                {lesson.required ? (
+                                  <span
+                                    className="lesson-item__required"
+                                    title="Required to complete this course"
+                                  >
+                                    Required
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
                     </ul>
                   </div>
                 ))

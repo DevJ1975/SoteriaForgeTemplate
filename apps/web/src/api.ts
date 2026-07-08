@@ -21,9 +21,20 @@ import type {
   LessonRecord,
   ModuleRecord,
   LessonKind,
+  LessonContent,
 } from '@soteria-forge/shared'
+import { parseLessonContent } from '@soteria-forge/shared'
 import type { CourseRow, ModuleRow, LessonRow } from '@soteria-forge/shared/supabase'
 import { supabase, isSupabaseConfigured } from './supabase'
+
+/**
+ * A lesson enriched with its parsed authoring content (`lessons.content` jsonb).
+ * The base `LessonRecord` carries no content field, so the web player needs this
+ * projection to render body text + score a quiz. Content is parsed DEFENSIVELY
+ * via the shared `parseLessonContent` (absent/malformed → "no renderable
+ * content"), exactly as the mobile player consumes it.
+ */
+export type LessonWithContent = LessonRecord & { content: LessonContent }
 
 /** Standard graceful envelope: data plus a "backend not configured yet" flag. */
 export interface Result<T> {
@@ -80,7 +91,7 @@ function moduleRowToRecord(row: ModuleRow): ModuleRecord {
   }
 }
 
-function lessonRowToRecord(row: LessonRow): LessonRecord {
+function lessonRowToRecord(row: LessonRow): LessonWithContent {
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -92,6 +103,10 @@ function lessonRowToRecord(row: LessonRow): LessonRecord {
     sequence: row.sequence,
     durationMinutes: row.duration_minutes,
     required: row.required,
+    // Per-lesson pass threshold (wins over the content-level value when scoring).
+    passingScore: row.passing_score ?? undefined,
+    // Parsed authoring content — body text + scoreable quiz questions.
+    content: parseLessonContent(row.content),
     createdAt: row.created_at,
     // `lessons` carries no `updated_at` column — mirror created_at (as mobile does).
     updatedAt: row.created_at,
@@ -117,9 +132,9 @@ export async function listCourses(): Promise<Result<CourseRecord[]>> {
 /** A course with its ordered modules, each carrying its ordered lessons. */
 export interface CourseTree {
   course: CourseRecord
-  modules: Array<ModuleRecord & { lessons: LessonRecord[] }>
+  modules: Array<ModuleRecord & { lessons: LessonWithContent[] }>
   /** All lessons flat, in module→lesson order (handy for the detail view). */
-  lessons: LessonRecord[]
+  lessons: LessonWithContent[]
 }
 
 /**
@@ -157,14 +172,14 @@ export async function getCourseTree(
     .map(lessonRowToRecord)
     .sort((a, b) => a.sequence - b.sequence)
 
-  const lessonsByModule = new Map<string, LessonRecord[]>()
+  const lessonsByModule = new Map<string, LessonWithContent[]>()
   for (const lesson of orderedLessons) {
     const bucket = lessonsByModule.get(lesson.moduleId)
     if (bucket) bucket.push(lesson)
     else lessonsByModule.set(lesson.moduleId, [lesson])
   }
 
-  const flat: LessonRecord[] = []
+  const flat: LessonWithContent[] = []
   const modules = orderedModules.map((m) => {
     const lessons = lessonsByModule.get(m.id) ?? []
     for (const l of lessons) flat.push(l)
