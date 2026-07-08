@@ -13,53 +13,15 @@ import type { ReactNode } from 'react';
 import { createContext, useContext } from 'react';
 import { Platform } from 'react-native';
 import type { ViewStyle } from 'react-native';
+import { palette, radii, spacing, fonts } from './palette';
 
-/* ---- Raw brand palette ---------------------------------------------------- */
-export const palette = {
-  ember: '#E8551F',       // primary brand
-  emberHot: '#FF7A3D',    // primary on dark
-  emberDeep: '#D8451A',   // pressed / deep accent
-  spark: '#FFB552',       // secondary accent
-  ink: '#1A1D22',         // headings / text on light
-  charcoal: '#1B1E23',    // dark surfaces
-  steel: '#3A4048',       // secondary UI
-  paper: '#F1EEE8',       // warm page background
-  surface: '#F6F5F6',     // light neutral surface
-  white: '#FFFFFF',
-  hairline: '#E4DFD6',    // borders on light
-  muted: '#8A8579',       // secondary text (warm)
-  textMuted: '#5A5F66',   // body-muted (cool)
-  success: '#1F8A5B',
-  danger: '#C0392B',
-  warning: '#E8A317',
-  info: '#2A6FDB',
-  // dark scheme
-  darkBg: '#16181D',
-  darkPanel: '#1E2127',
-  darkHairline: 'rgba(255,255,255,0.12)',
-  darkText: '#F4F2EE',
-  darkMuted: '#AEB4BC',
-  darkInput: '#22262C',
-} as const;
-
-/* ---- Scales --------------------------------------------------------------- */
-export const radii = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
-
-/**
- * Font family tokens. You MUST load these fonts in your app (see README).
- * If a family is not registered the platform falls back to the system font.
- *
- * These strings are the exact family names `expo-google-fonts` registers, so the
- * mobile app (apps/mobile/app/_layout.tsx loads them via `useFonts`) can consume
- * these tokens directly. On any platform where the family isn't registered, RN
- * gracefully falls back to the system font — the names remain the single source
- * of truth, changed here in one place.
- */
-export const fonts = {
-  display: 'Oswald_600SemiBold',              // headings, numbers, buttons
-  body: 'BarlowSemiCondensed_500Medium',      // body, labels, inputs
-} as const;
+/* ---- Brand tokens + scales -----------------------------------------------
+ * The raw `palette` and the `radii` / `spacing` / `fonts` scales now live in the
+ * RN-free `./palette` module (so a Node/CI test can import them without dragging
+ * in `react-native`). They are re-exported here to keep the historical public
+ * surface (`import { palette, radii, spacing, fonts } from '@soteria-forge/ui'`)
+ * byte-for-byte unchanged. */
+export { palette, radii, spacing, fonts } from './palette';
 
 export type ThemeColors = {
   primary: string;
@@ -78,6 +40,18 @@ export type ThemeColors = {
   danger: string;
   warning: string;
   info: string;
+  /**
+   * Accessible foreground (text/icon) colors for content placed ON the
+   * `warning` and `info` fills. These are NOT interchangeable with `onPrimary`
+   * or a hardcoded white: `warning` is a light amber, so white text on it is
+   * only ~2:1 (WCAG fail) — `onWarning` is dark ink. `info` is a mid blue, and
+   * its accessible on-color differs per scheme (white on the light-theme blue,
+   * dark ink on the lighter dark-theme blue). Always pair `onWarning` with
+   * `warning` and `onInfo` with `info`; each pairing is asserted >= 4.5:1 in
+   * `a11y/__tests__/contrast.test.ts`.
+   */
+  onWarning: string;
+  onInfo: string;
   overlay: string;
 };
 
@@ -108,6 +82,9 @@ export const lightTheme: Theme = {
     danger: palette.danger,
     warning: palette.warning,
     info: palette.info,
+    // Dark ink on amber warning = ~7.8:1; white on info blue (#2A6FDB) = ~4.8:1.
+    onWarning: palette.ink,
+    onInfo: palette.white,
     overlay: 'rgba(20,20,24,0.45)',
   },
   radii,
@@ -134,6 +111,11 @@ export const darkTheme: Theme = {
     danger: '#E4634F',
     warning: palette.spark,
     info: '#5B8DEF',
+    // Dark ink on the spark warning = ~9.6:1. The dark-theme info blue (#5B8DEF)
+    // is lighter than the light-theme blue, so WHITE on it is only ~3.2:1 (fail)
+    // — the accessible on-color here is dark ink (~5.2:1), not white.
+    onWarning: palette.ink,
+    onInfo: palette.ink,
     overlay: 'rgba(0,0,0,0.6)',
   },
   radii,

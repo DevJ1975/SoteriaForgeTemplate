@@ -3,6 +3,7 @@
  * Single import surface.
  */
 export * from './theme';
+export * from './a11y/contrast';
 export * from './motion';
 export * from './icons';
 export * from './Skeleton';

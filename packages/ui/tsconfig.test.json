@@ -1,0 +1,27 @@
+{
+  // Design-token contrast tests ONLY. Deliberately a STANDALONE config (it does
+  // NOT extend tsconfig.json, whose `include: ["src"]` would drag every
+  // react-native component into the program). We seed the program with just the
+  // two RN-free modules — the pure `contrast` math + its test, and the raw
+  // `palette` they assert against — and emit CommonJS to `.test-dist/`, which
+  // `node --test` runs directly. No `react-native` / `expo-*` may enter this
+  // graph; if a future edit makes palette.ts or contrast.ts import RN, this
+  // compile (and CI's verify-design-tokens job) breaks loudly. `.test-dist/`
+  // mirrors apps/mobile's convention.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": ".test-dist",
+    "rootDir": "src"
+  },
+  "include": ["src/palette.ts", "src/a11y/**/*.ts"]
+}
