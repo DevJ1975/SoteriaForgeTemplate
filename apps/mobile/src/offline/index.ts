@@ -26,10 +26,21 @@ export type { ConnectivitySnapshot } from './netinfo';
 export {
   CompletionQueue,
   toCompletionRow,
+  toRecordEntry,
+  deriveRecordStatus,
   REJECTED_MARKER,
   COMPLETION_VERB_IDS,
 } from './queue';
-export type { EnqueueCompletionInput, CompletionRowFields } from './queue';
+export type {
+  EnqueueCompletionInput,
+  CompletionRowFields,
+  CompletionRecordEntry,
+  CompletionRecordStatus,
+} from './queue';
+
+// Training-record read model + retry hook (the "My training record" screen seam)
+export { useTrainingRecord } from './useTrainingRecord';
+export type { TrainingRecordState } from './useTrainingRecord';
 
 // Sync engine (idempotent, backoff, never drops the queue)
 export {

@@ -10,4 +10,5 @@ export { CourseListScreen } from './CourseListScreen';
 export { CourseDetailScreen } from './CourseDetailScreen';
 export { LessonPlayerScreen } from './LessonPlayerScreen';
 export { CertificatesScreen } from './CertificatesScreen';
+export { TrainingRecordScreen } from './TrainingRecordScreen';
 export { JoinTenantScreen, extractInviteToken } from './JoinTenantScreen';

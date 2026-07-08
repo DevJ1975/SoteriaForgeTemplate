@@ -869,6 +869,291 @@ code {
   height: 0.875rem;
 }
 
+/* Completed lesson: green check chip + de-emphasized row. */
+.lesson-item[data-completed='true'] .lesson-item__kind {
+  background: color-mix(in srgb, var(--sf-status-complete) 16%, transparent);
+  color: var(--sf-status-complete);
+}
+
+.lesson-item__done {
+  font-weight: var(--sf-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+  color: var(--sf-status-complete);
+}
+
+/* ── Lesson player (record-completion surface) ────────────────────────── */
+
+.lesson-player {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-4);
+}
+
+.lesson-meta__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sf-space-3);
+}
+
+.lesson-badge {
+  flex: 0 0 auto;
+  padding: var(--sf-space-1) var(--sf-space-3);
+  border-radius: var(--sf-radius-full);
+  font-size: var(--sf-text-2xs);
+  font-weight: var(--sf-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+}
+
+.lesson-badge[data-tone='complete'] {
+  background: color-mix(in srgb, var(--sf-status-complete) 16%, transparent);
+  color: var(--sf-status-complete);
+}
+
+.lesson-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-3);
+  color: var(--sf-text-primary);
+  font-size: var(--sf-text-base);
+  line-height: 1.6;
+}
+
+.lesson-body__p {
+  margin: 0;
+}
+
+.lesson-complete {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sf-space-3);
+  padding-top: var(--sf-space-2);
+  border-top: 1px solid var(--sf-border-subtle);
+}
+
+.lesson-complete__prompt {
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-sm);
+}
+
+.lesson-complete__error {
+  color: var(--sf-status-expired);
+  font-size: var(--sf-text-sm);
+}
+
+/* ── Quiz ─────────────────────────────────────────────────────────────── */
+
+.quiz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-4);
+}
+
+.quiz__note {
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-sm);
+  padding: var(--sf-space-3);
+  border-radius: var(--sf-radius-md);
+  background: var(--sf-bg-subtle);
+}
+
+.quiz-question {
+  border: 1px solid var(--sf-border-subtle);
+  border-radius: var(--sf-radius-lg);
+  padding: var(--sf-space-4);
+  margin: 0;
+}
+
+.quiz-question__legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-1);
+  padding: 0;
+  margin-bottom: var(--sf-space-3);
+}
+
+.quiz-question__num {
+  font-size: var(--sf-text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-caps);
+  color: var(--sf-text-muted);
+  font-weight: var(--sf-weight-semibold);
+}
+
+.quiz-question__prompt {
+  font-size: var(--sf-text-base);
+  font-weight: var(--sf-weight-semibold);
+  color: var(--sf-text-primary);
+}
+
+.quiz-question__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-2);
+}
+
+.quiz-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--sf-space-3);
+  padding: var(--sf-space-3);
+  border: 1.5px solid var(--sf-border-default);
+  border-radius: var(--sf-radius-md);
+  cursor: pointer;
+  transition: border-color var(--sf-dur-base) var(--sf-ease-out);
+}
+
+.quiz-choice[data-selected='true'] {
+  border-color: var(--sf-border-focus);
+  background: var(--sf-color-ember-50);
+}
+
+.quiz-choice:focus-within {
+  box-shadow: var(--sf-focus-ring);
+}
+
+/* Visually-hidden native radio (keeps keyboard + a11y semantics). */
+.quiz-choice__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.quiz-choice__pip {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--sf-radius-full);
+  border: 2px solid var(--sf-border-default);
+}
+
+.quiz-choice[data-selected='true'] .quiz-choice__pip {
+  border-color: var(--sf-color-ember-500);
+  background:
+    radial-gradient(circle at center, var(--sf-color-ember-500) 0 40%, transparent 42%);
+}
+
+.quiz-choice__text {
+  flex: 1;
+  color: var(--sf-text-primary);
+  font-size: var(--sf-text-sm);
+}
+
+.quiz__progress {
+  text-align: center;
+  color: var(--sf-text-muted);
+  font-size: var(--sf-text-xs);
+}
+
+.quiz-result {
+  align-items: stretch;
+  padding: var(--sf-space-4);
+  border: 1px solid var(--sf-border-subtle);
+  border-radius: var(--sf-radius-lg);
+}
+
+.quiz-result__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sf-space-3);
+}
+
+.quiz-result__badge {
+  padding: var(--sf-space-1) var(--sf-space-3);
+  border-radius: var(--sf-radius-full);
+  font-size: var(--sf-text-2xs);
+  font-weight: var(--sf-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--sf-tracking-wide);
+}
+
+.quiz-result__badge[data-tone='pass'],
+.quiz-result__score[data-tone='pass'] {
+  color: var(--sf-status-complete);
+}
+
+.quiz-result__badge[data-tone='pass'] {
+  background: color-mix(in srgb, var(--sf-status-complete) 16%, transparent);
+}
+
+.quiz-result__badge[data-tone='fail'],
+.quiz-result__score[data-tone='fail'] {
+  color: var(--sf-status-expired);
+}
+
+.quiz-result__badge[data-tone='fail'] {
+  background: color-mix(in srgb, var(--sf-status-expired) 16%, transparent);
+}
+
+.quiz-result__score {
+  font-family: var(--sf-font-display);
+  font-weight: var(--sf-weight-bold, 700);
+  font-size: var(--sf-text-3xl);
+}
+
+.quiz-result__detail {
+  color: var(--sf-text-secondary);
+  font-size: var(--sf-text-sm);
+  line-height: 1.5;
+}
+
+.quiz-result__error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sf-space-2);
+  color: var(--sf-status-expired);
+  font-size: var(--sf-text-sm);
+}
+
+/* ── Sync status chip (header) ────────────────────────────────────────── */
+
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sf-space-2);
+  padding: var(--sf-space-1) var(--sf-space-3);
+  border-radius: var(--sf-radius-full);
+  font-size: var(--sf-text-xs);
+  font-weight: var(--sf-weight-semibold);
+  white-space: nowrap;
+  /* Neutral, theme-aware LABEL colour so the chip text clears WCAG AA in BOTH
+     light and dark over the tinted backgrounds below; the status hue is carried
+     by the dot (per-tone) + the words, not the low-contrast text colour. */
+  color: var(--sf-text-primary);
+}
+
+.sync-status__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--sf-radius-full);
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.sync-status[data-tone='pending'] {
+  background: color-mix(in srgb, var(--sf-status-progress) 14%, transparent);
+}
+.sync-status[data-tone='pending'] .sync-status__dot {
+  background: var(--sf-status-progress);
+}
+
+.sync-status[data-tone='offline'] {
+  background: color-mix(in srgb, var(--sf-status-offline) 16%, transparent);
+}
+.sync-status[data-tone='offline'] .sync-status__dot {
+  background: var(--sf-status-offline);
+}
+
 /* ── PWA: install button, offline bar, update toast ───────────────────── */
 
 .install-btn {
