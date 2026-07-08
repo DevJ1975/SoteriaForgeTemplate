@@ -60,7 +60,10 @@
     },
     "doctor": {
       "reactNativeDirectoryCheck": {
-        "listUnknownPackages": false
+        "listUnknownPackages": false,
+        "exclude": [
+          "@nozbe/watermelondb"
+        ]
       }
     }
   }
