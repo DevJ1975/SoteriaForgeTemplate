@@ -11,8 +11,14 @@
     "noEmit": false,
     "declaration": false,
     "sourceMap": false,
-    "module": "commonjs",
-    "moduleResolution": "node",
+    // NodeNext (not classic commonjs/node): Expo SDK 54's `expo/tsconfig.base`
+    // sets `customConditions`, which TS only permits under node16/nodenext/bundler
+    // moduleResolution — classic `node` now errors TS5098. NodeNext keeps CommonJS
+    // emit for this non-`type:module` package (so `node --test` runs the .js and
+    // Node 22's require(esm) still loads @soteria-forge/shared's ESM dist), mirrors
+    // packages/shared, and satisfies the inherited customConditions.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "outDir": ".test-dist",
     "rootDir": "."
   },

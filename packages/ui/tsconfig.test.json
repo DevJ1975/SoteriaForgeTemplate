@@ -12,6 +12,11 @@
     "target": "ES2022",
     "module": "commonjs",
     "moduleResolution": "node",
+    // Default imports of CommonJS core modules (import assert from 'node:assert/strict')
+    // need interop or they compile to `.default` (undefined) under module:commonjs.
+    // Required for parity across TS versions — without it CI's tsc@5.9.3 emits a
+    // broken default access even though a newer local tsc tolerates it.
+    "esModuleInterop": true,
     "lib": ["ES2022"],
     "types": ["node"],
     "strict": true,
