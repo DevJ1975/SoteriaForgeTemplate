@@ -1123,9 +1123,13 @@ code {
   gap: var(--sf-space-2);
   padding: var(--sf-space-1) var(--sf-space-3);
   border-radius: var(--sf-radius-full);
-  font-size: var(--sf-text-2xs);
+  font-size: var(--sf-text-xs);
   font-weight: var(--sf-weight-semibold);
   white-space: nowrap;
+  /* Neutral, theme-aware LABEL colour so the chip text clears WCAG AA in BOTH
+     light and dark over the tinted backgrounds below; the status hue is carried
+     by the dot (per-tone) + the words, not the low-contrast text colour. */
+  color: var(--sf-text-primary);
 }
 
 .sync-status__dot {
@@ -1137,13 +1141,17 @@ code {
 }
 
 .sync-status[data-tone='pending'] {
-  color: var(--sf-status-progress);
   background: color-mix(in srgb, var(--sf-status-progress) 14%, transparent);
+}
+.sync-status[data-tone='pending'] .sync-status__dot {
+  background: var(--sf-status-progress);
 }
 
 .sync-status[data-tone='offline'] {
-  color: var(--sf-status-offline);
   background: color-mix(in srgb, var(--sf-status-offline) 16%, transparent);
+}
+.sync-status[data-tone='offline'] .sync-status__dot {
+  background: var(--sf-status-offline);
 }
 
 /* ── PWA: install button, offline bar, update toast ───────────────────── */

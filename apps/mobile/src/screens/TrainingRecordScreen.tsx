@@ -167,7 +167,7 @@ function RecordRow({ entry, courseTitle, retrying, onRetry }: RecordRowProps) {
           <Button
             title={retrying ? 'Retrying…' : 'Retry sync'}
             variant="secondary"
-            size="sm"
+            size="md"
             disabled={retrying}
             onPress={() => onRetry(entry.statementId)}
           />
@@ -347,7 +347,7 @@ export function TrainingRecordScreen() {
           >
             Your on-device training store didn’t load. Nothing was lost — try again.
           </Text>
-          <Button title="Try again" variant="secondary" size="sm" onPress={() => void probe()} />
+          <Button title="Try again" variant="secondary" size="md" onPress={() => void probe()} />
         </Card>
       </Screen>
     );
