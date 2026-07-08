@@ -122,7 +122,8 @@ jobs:
       # once the app moves to the New Architecture.
       - name: mobile — expo doctor (config + dependency-matrix audit, non-blocking)
         working-directory: apps/mobile
-        run: npx --yes expo-doctor@latest || echo "::warning::expo-doctor reported issues (non-blocking — see log; known: watermelondb old-arch, monorepo metro overrides)"
+        run: |
+          npx --yes expo-doctor@latest || echo "::warning::expo-doctor reported issues (non-blocking; see log for known items — watermelondb old-arch and monorepo metro overrides)"
 
   # Type-check + production build of the React web PWA. `build` runs
   # `tsc --noEmit && vite build`, so a green build here proves the app compiles
