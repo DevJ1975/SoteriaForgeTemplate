@@ -13,13 +13,15 @@
  * The Supabase DB types + row aliases live under the `./supabase` subpath export.
  *
  * Modules:
- *   domain — DTOs (course/module/lesson/user/enrollment records) and helpers
- *   roles  — role group model + legacy UserRole mapping and guards
- *   tenant — the tenant-isolation guard (assertTenantMatch / isSameTenant)
- *   xapi   — xAPI completion-statement types, verbs, and builders
+ *   domain        — DTOs (course/module/lesson/user/enrollment records) and helpers
+ *   lessonContent — typed view over lessons.content jsonb (parser + quiz scoring)
+ *   roles         — role group model + legacy UserRole mapping and guards
+ *   tenant        — the tenant-isolation guard (assertTenantMatch / isSameTenant)
+ *   xapi          — xAPI completion-statement types, verbs, and builders
  */
 
 export * from './domain.js'
+export * from './lessonContent.js'
 export * from './roles.js'
 export * from './tenant.js'
 export * from './xapi.js'

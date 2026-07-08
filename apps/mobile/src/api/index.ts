@@ -34,5 +34,11 @@ export type {
   UseCertificatesResult,
   UseCertificateResult,
 } from './certificates';
+export {
+  deriveCertificateStatus,
+  countValidCertificates,
+  EXPIRING_SOON_DAYS,
+} from './certificateStatus';
+export type { CertificateStatus, CertificateStatusInfo } from './certificateStatus';
 export { useLessonVideo } from './videoPlayback';
 export type { LessonVideoSource, VideoSourceStatus } from './videoPlayback';

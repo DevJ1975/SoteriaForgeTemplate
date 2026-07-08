@@ -16,7 +16,7 @@ import { useFocusEffect } from 'expo-router';
 import { Badge, BadgeGlyph, Button, Card, Divider, Skeleton, useTheme } from '@soteria-forge/ui';
 import { CertificateView, Screen } from '../components';
 import { useAuth } from '../auth';
-import { useCertificates } from '../api';
+import { useCertificates, countValidCertificates } from '../api';
 
 export function CertificatesScreen() {
   const theme = useTheme();
@@ -45,6 +45,12 @@ export function CertificatesScreen() {
   const recipientName = user
     ? user.displayName ?? user.email ?? user.username
     : 'Recipient';
+
+  // Summary counts: only currently-valid certs (valid or expiring-soon) count as
+  // valid; expired/revoked are surfaced separately so an earned-but-lapsed cert is
+  // never tallied as a live credential.
+  const validCount = countValidCertificates(certificates);
+  const lapsedCount = certificates.length - validCount;
 
   if (loading && !refreshing) {
     // Skeletons shaped like the loaded layout: title row + certificate blocks.
@@ -150,7 +156,10 @@ export function CertificatesScreen() {
         >
           My Certificates
         </Text>
-        <Badge label={`${certificates.length}`} tone="success" />
+        <View style={styles.headerBadges}>
+          {validCount > 0 ? <Badge label={`${validCount} valid`} tone="success" /> : null}
+          {lapsedCount > 0 ? <Badge label={`${lapsedCount} lapsed`} tone="warning" /> : null}
+        </View>
       </View>
 
       {certificates.map((cert, i) => (
@@ -187,4 +196,5 @@ const styles = StyleSheet.create({
   },
   certBlock: { gap: 12 },
   certMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerBadges: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

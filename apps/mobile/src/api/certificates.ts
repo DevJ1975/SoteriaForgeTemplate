@@ -34,6 +34,13 @@ export interface CertificateRecord {
   issuedAt: string;
   /** ISO expiry timestamp, when the tenant configures certificate expiry. */
   expiresAt?: string;
+  /**
+   * ISO timestamp the certificate was revoked at, if it has been revoked. A
+   * revoked (or expired) cert is NOT hidden — the worker must see that it lapsed
+   * — so callers derive a status from `expiresAt`/`revokedAt`
+   * (`deriveCertificateStatus`) rather than assume every returned row is valid.
+   */
+  revokedAt?: string;
   /** Score recorded on the certificate, 0..100, when present. */
   score?: number;
   /** Course title, joined from `courses` (RLS-scoped) for display. */
@@ -79,18 +86,21 @@ function rowToRecord(row: CertificateJoinRow): CertificateRecord {
     certificateNumber: row.certificate_number,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at ?? undefined,
+    revokedAt: row.revoked_at ?? undefined,
     score: row.score ?? undefined,
     courseTitle: joinedCourseTitle(row),
   };
 }
 
-/** Only NON-revoked certificates are earned achievements the learner can show. */
+/** The certificate row plus its RLS-scoped course title. */
 const CERT_SELECT = '*, course:courses(title)';
 
 /**
- * List ALL of the caller's earned certificates (RLS-scoped, owner-only), newest
- * first. Revoked certificates are excluded. Returns the standard {…, backendPending,
- * error, refetch} shape the screens consume.
+ * List ALL of the caller's certificates (RLS-scoped, owner-only), newest first.
+ * Revoked AND expired certificates are INCLUDED — a worker must SEE that a cert
+ * lapsed, not have it silently vanish; callers derive the display status with
+ * `deriveCertificateStatus`. Returns the standard {…, backendPending, error,
+ * refetch} shape the screens consume.
  */
 export function useCertificates(): UseCertificatesResult {
   const [certificates, setCertificates] = useState<CertificateRecord[]>([]);
@@ -112,12 +122,12 @@ export function useCertificates(): UseCertificatesResult {
 
     try {
       // RLS-scoped: no tenant_id/user_id sent for authorization. The server
-      // returns ONLY the caller's own certificates. `revoked_at is null` keeps
-      // revoked certs out of the earned list.
+      // returns ONLY the caller's own certificates. Revoked/expired rows are
+      // intentionally kept — the screen surfaces their lapsed status rather than
+      // hiding them (see `deriveCertificateStatus`).
       const { data, error: readError } = await supabase
         .from('certificates')
         .select(CERT_SELECT)
-        .is('revoked_at', null)
         .order('issued_at', { ascending: false });
       if (readError) throw new Error(readError.message);
       // The embedded-join select shape is inferred by PostgREST; normalize to our

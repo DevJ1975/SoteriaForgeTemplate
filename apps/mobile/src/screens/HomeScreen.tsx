@@ -31,7 +31,7 @@ import {
 } from '@soteria-forge/ui';
 import { AppearanceToggle, Screen } from '../components';
 import { useAuth } from '../auth';
-import { useEnrollments, useCertificates } from '../api';
+import { useEnrollments, useCertificates, countValidCertificates } from '../api';
 import { isEnrollmentComplete, isEnrollmentOverdue } from './courseSections';
 
 export function HomeScreen() {
@@ -53,6 +53,9 @@ export function HomeScreen() {
     loading: certificatesLoading,
     refetch: refetchCertificates,
   } = useCertificates();
+  // Count only CURRENTLY-VALID certs (valid or expiring-soon) — an expired or
+  // revoked cert must not inflate the "earned" tally on Home.
+  const validCertCount = countValidCertificates(certificates);
 
   // Pull-to-refresh re-reads both owner-scoped sources; the spinner clears
   // once both hooks settle.
@@ -240,8 +243,8 @@ export function HomeScreen() {
           >
             My Certificates
           </Text>
-          {certificates.length > 0 ? (
-            <Badge label={`${certificates.length}`} tone="success" />
+          {validCertCount > 0 ? (
+            <Badge label={`${validCertCount}`} tone="success" />
           ) : null}
         </View>
         <Text
@@ -252,9 +255,11 @@ export function HomeScreen() {
             marginTop: 8,
           }}
         >
-          {certificates.length > 0
+          {validCertCount > 0
             ? 'View and share the certificates you’ve earned.'
-            : 'Finish a course to earn your first certificate.'}
+            : certificates.length > 0
+              ? 'A certificate has lapsed — review it and recertify.'
+              : 'Finish a course to earn your first certificate.'}
         </Text>
         <Divider spacing={16} />
         <Button
