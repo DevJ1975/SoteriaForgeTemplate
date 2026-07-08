@@ -36,6 +36,7 @@ export default function AppLayout() {
       <Stack.Screen name="course/[id]" options={{ title: 'Course' }} />
       <Stack.Screen name="lesson/[id]" options={{ title: 'Lesson' }} />
       <Stack.Screen name="certificates" options={{ title: 'My Certificates' }} />
+      <Stack.Screen name="training-record" options={{ title: 'My Training Record' }} />
       {/* Signed in, no profile yet — the "join a tenant" flow. Full-screen (no
           header) so it reads like an onboarding step, not a nested app screen. */}
       <Stack.Screen name="join" options={{ headerShown: false }} />

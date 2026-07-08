@@ -32,6 +32,7 @@ import {
 import { AppearanceToggle, Screen } from '../components';
 import { useAuth } from '../auth';
 import { useEnrollments, useCertificates, countValidCertificates } from '../api';
+import { useConnectivityOptional } from '../offline';
 import { isEnrollmentComplete, isEnrollmentOverdue } from './courseSections';
 
 export function HomeScreen() {
@@ -56,6 +57,9 @@ export function HomeScreen() {
   // Count only CURRENTLY-VALID certs (valid or expiring-soon) — an expired or
   // revoked cert must not inflate the "earned" tally on Home.
   const validCertCount = countValidCertificates(certificates);
+  // Pending sync depth (from the offline layer) — hints on the training-record
+  // affordance that some completions haven't reached the server yet.
+  const { pendingSyncCount } = useConnectivityOptional();
 
   // Pull-to-refresh re-reads both owner-scoped sources; the spinner clears
   // once both hooks settle.
@@ -267,6 +271,45 @@ export function HomeScreen() {
           variant="secondary"
           fullWidth
           onPress={() => router.push('/(app)/certificates')}
+        />
+      </Card>
+
+      {/* My Training Record — every completion recorded on this device, with its
+          live sync status (works offline). */}
+      <Card>
+        <View style={styles.readinessHeader}>
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontFamily: theme.fonts.display,
+              fontWeight: '600',
+              fontSize: 18,
+            }}
+          >
+            My Training Record
+          </Text>
+          {pendingSyncCount > 0 ? (
+            <Badge label={`${pendingSyncCount} pending`} tone="info" />
+          ) : null}
+        </View>
+        <Text
+          style={{
+            color: theme.colors.textMuted,
+            fontFamily: theme.fonts.body,
+            fontSize: 13,
+            marginTop: 8,
+          }}
+        >
+          {pendingSyncCount > 0
+            ? 'See what you’ve completed and what’s still syncing.'
+            : 'See every lesson you’ve completed and its sync status.'}
+        </Text>
+        <Divider spacing={16} />
+        <Button
+          title="View my training record"
+          variant="secondary"
+          fullWidth
+          onPress={() => router.push('/(app)/training-record')}
         />
       </Card>
 
