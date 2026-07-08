@@ -416,6 +416,7 @@ export type Database = {
         Row: {
           created_at: string
           crew: string | null
+          deactivated_at: string | null
           department: string | null
           email: string | null
           full_name: string | null
@@ -428,6 +429,7 @@ export type Database = {
         Insert: {
           created_at?: string
           crew?: string | null
+          deactivated_at?: string | null
           department?: string | null
           email?: string | null
           full_name?: string | null
@@ -440,6 +442,7 @@ export type Database = {
         Update: {
           created_at?: string
           crew?: string | null
+          deactivated_at?: string | null
           department?: string | null
           email?: string | null
           full_name?: string | null

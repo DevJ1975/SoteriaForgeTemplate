@@ -10,8 +10,10 @@
  * unchanged from the shell's original seam.
  *
  * Colors/typography come from the flat @soteria-forge/ui theme: `warning` for
- * the offline strip, `info` for the syncing strip, `onPrimary` for readable
- * text on both, and the display font for the uppercase label.
+ * the offline strip and `info` for the syncing strip, each paired with its
+ * accessible on-color (`onWarning` / `onInfo`) so the label clears WCAG AA on
+ * both fills — white-on-amber was only ~2:1. The display font sets the uppercase
+ * label. No color is hardcoded here; every value is a theme token.
  */
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +29,8 @@ export function OfflineBanner() {
   if (isOnline && pendingSyncCount === 0) return null;
 
   const backgroundColor = isOnline ? theme.colors.info : theme.colors.warning;
+  // Pair each fill with its accessible on-color (both >= 4.5:1); see theme.ts.
+  const textColor = isOnline ? theme.colors.onInfo : theme.colors.onWarning;
   const message = !isOnline
     ? pendingSyncCount > 0
       ? `Offline — ${pendingSyncCount} item${pendingSyncCount === 1 ? '' : 's'} will sync when reconnected`
@@ -45,7 +49,7 @@ export function OfflineBanner() {
         style={[
           styles.text,
           {
-            color: theme.colors.onPrimary,
+            color: textColor,
             fontFamily: theme.fonts.display,
           },
         ]}

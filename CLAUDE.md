@@ -110,7 +110,8 @@ mirror its VALUES and are byte-identical to each other. Never hardcode a brand h
 ## The swarm
 
 Specialized subagents live in `.claude/agents/*.md` (orchestrator, aws-infra, api-data, mobile,
-video, offline-sync, console-web, sfg-developer, security-reviewer, test-runner, docs). The workflow and roster
+video, offline-sync, console-web, sfg-developer, lms-expert, ui-ux, ehs-expert, ios-developer,
+android-developer, security-reviewer, test-runner, docs). The workflow and roster
 are documented in `docs/CLAUDE_SWARM.md`. Any change touching data access, auth, sync, or
 storage goes through `security-reviewer` (read-only, holds the tenant-isolation release gate)
 before it is done, and ends green under `test-runner`.

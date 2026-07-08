@@ -731,6 +731,14 @@ a:focus-visible {
   flex: none;
 }
 
+/* Grouped header actions (e.g. Export CSV + Export Transcript). */
+.report-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Summary stat tiles. */
 .report-stats {
   display: grid;
@@ -874,6 +882,12 @@ a:focus-visible {
   font-size: 0.75rem;
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+/* Per-worker transcript export, pinned to the right of the name cell. */
+.report-worker-transcript {
+  margin-left: auto;
+  flex: none;
 }
 
 .report-rate {

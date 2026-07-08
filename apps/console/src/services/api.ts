@@ -348,6 +348,50 @@ type CertificateJoinedRow = CertificateRow & {
 }
 
 // ===========================================================================
+// Transcript export (READ-ONLY) — the auditable training record.
+// ---------------------------------------------------------------------------
+// A transcript is one enrollment (assigned training) joined to its worker, its
+// course, and — when the course was completed — the auto-issued certificate.
+// This is the legal training-evidence view the console exports to CSV so a
+// departed/deactivated worker's record survives outside the app (migration 13
+// switched the evidence FKs to ON DELETE RESTRICT precisely so this evidence is
+// never silently destroyed). Every read is RLS-scoped to the caller's OWN tenant
+// via `current_tenant_id()`, so NO client tenant filter is ever sent for
+// authorization. Optional `userId`/`courseId` are query-NARROWING conveniences
+// for a per-worker / per-course drill-down — not authorization (RLS still scopes
+// the rows to the tenant), exactly like `listCourseEnrollments`.
+// ===========================================================================
+
+/** One row of a training transcript — an enrollment enriched with its cert. */
+export type TranscriptRow = {
+  userId: string
+  workerName: string
+  workerEmail: string
+  courseId: string
+  courseTitle: string
+  /** Enrollment status ('assigned' | 'in-progress' | 'completed' | 'overdue' | 'expired'). */
+  status: string
+  /** Progress 0–100. */
+  progress: number
+  /** ISO due date, or null when the enrollment has no due date. */
+  dueAt: string | null
+  /** ISO completion timestamp, or null when not yet completed. */
+  completedAt: string | null
+  /** Certificate number when a certificate was issued for this course, else null. */
+  certificateNumber: string | null
+  /** ISO certificate issue timestamp, or null when none issued. */
+  issuedAt: string | null
+  /** ISO certificate expiry, or null (no cert / non-expiring cert). */
+  expiresAt: string | null
+}
+
+/** The embedded-relation shape for the transcript's enrollment read. */
+type TranscriptEnrollmentRow = EnrollmentRow & {
+  profiles: { full_name: string | null; email: string | null } | null
+  courses: { title: string | null } | null
+}
+
+// ===========================================================================
 // Video registration (Cloudflare Stream) — a tenant-admin links a Stream video
 // to a video-kind lesson. `video_assets` stores METADATA ONLY (provider +
 // playback/UID + optional MP4 download URL); it NEVER holds bytes. tenant_id is
@@ -1029,8 +1073,20 @@ export const consoleApi = {
    * Idempotent via upsert on the (user_id, course_id) unique constraint —
    * re-assigning an already-enrolled worker is ignored, never duplicated. A
    * non-admin caller is rejected by RLS.
+   *
+   * `dueAt` (optional, additive) is an ISO timestamp the assigned enrollment is
+   * due by, or null for no due date. It is stored on `enrollments.due_at`, which
+   * the server-side overdue sweep (migration 14) uses to flip a past-due,
+   * unfinished enrollment to 'overdue'. It is a scheduling field only — never a
+   * tenant/authorization input. When omitted, the column keeps its nullable
+   * default. Because the upsert `ignoreDuplicates`, re-assigning an
+   * already-enrolled worker does NOT overwrite an existing due date.
    */
-  async assignCourse(courseId: string, userIds: string[]): Promise<{ assigned: number }> {
+  async assignCourse(
+    courseId: string,
+    userIds: string[],
+    dueAt: string | null = null,
+  ): Promise<{ assigned: number }> {
     const ids = Array.from(new Set(userIds.filter(Boolean)))
     if (!ids.length) return { assigned: 0 }
 
@@ -1039,6 +1095,7 @@ export const consoleApi = {
       user_id: userId,
       course_id: courseId,
       status: 'assigned',
+      due_at: dueAt,
     }))
 
     const { data, error } = await supabase
@@ -1306,6 +1363,82 @@ export const consoleApi = {
       }
     })
     return { certificates }
+  },
+
+  // -------------------------------------------------------------------------
+  // Transcript export (READ-ONLY) — the auditable training record a tenant-admin
+  // downloads as CSV. Two RLS-scoped SELECTs (enrollments joined to worker +
+  // course, and the certificates for those enrollments) are merged in TypeScript
+  // on (user_id, course_id) — `certificates` is unique on that pair, so each
+  // enrollment gets at most one certificate. RLS constrains every row to the
+  // caller's OWN tenant via `current_tenant_id()`, so NO client tenant filter is
+  // sent for authorization. `userId`/`courseId` optionally NARROW the query for a
+  // drill-down; they are not authorization (RLS still scopes to the tenant).
+  // -------------------------------------------------------------------------
+
+  /**
+   * Build a training transcript for the caller's tenant: every enrollment joined
+   * to its worker + course and, when completed, its issued certificate. Optional
+   * `userId`/`courseId` narrow the result to one worker or one course for a
+   * drill-down export. RLS scopes the rows to the caller's own tenant — no tenant
+   * filter is sent. Rows are sorted by worker, then course, for a stable export.
+   */
+  async getTranscript(
+    options: { userId?: string; courseId?: string } = {},
+  ): Promise<{ transcript: TranscriptRow[] }> {
+    let enrollmentQuery = supabase
+      .from('enrollments')
+      .select('*, profiles(full_name, email), courses(title)')
+    if (options.userId) enrollmentQuery = enrollmentQuery.eq('user_id', options.userId)
+    if (options.courseId) enrollmentQuery = enrollmentQuery.eq('course_id', options.courseId)
+    const { data: enrollmentData, error: enrollmentError } = await enrollmentQuery
+    if (enrollmentError) fail('Unable to load transcript', enrollmentError)
+
+    let certificateQuery = supabase
+      .from('certificates')
+      .select('user_id, course_id, certificate_number, issued_at, expires_at')
+    if (options.userId) certificateQuery = certificateQuery.eq('user_id', options.userId)
+    if (options.courseId) certificateQuery = certificateQuery.eq('course_id', options.courseId)
+    const { data: certificateData, error: certificateError } = await certificateQuery
+    if (certificateError) fail('Unable to load transcript certificates', certificateError)
+
+    // Index certificates by (user_id, course_id) — unique per that pair.
+    const certByKey = new Map<
+      string,
+      { certificate_number: string; issued_at: string; expires_at: string | null }
+    >()
+    for (const cert of certificateData ?? []) {
+      certByKey.set(`${cert.user_id}:${cert.course_id}`, {
+        certificate_number: cert.certificate_number,
+        issued_at: cert.issued_at,
+        expires_at: cert.expires_at,
+      })
+    }
+
+    const transcript: TranscriptRow[] = (
+      (enrollmentData ?? []) as unknown as TranscriptEnrollmentRow[]
+    ).map((row) => {
+      const cert = certByKey.get(`${row.user_id}:${row.course_id}`)
+      return {
+        userId: row.user_id,
+        workerName: row.profiles?.full_name ?? row.profiles?.email ?? row.user_id,
+        workerEmail: row.profiles?.email ?? '',
+        courseId: row.course_id,
+        courseTitle: row.courses?.title ?? 'Untitled course',
+        status: row.status,
+        progress: row.progress,
+        dueAt: row.due_at,
+        completedAt: row.completed_at,
+        certificateNumber: cert?.certificate_number ?? null,
+        issuedAt: cert?.issued_at ?? null,
+        expiresAt: cert?.expires_at ?? null,
+      }
+    })
+    transcript.sort(
+      (a, b) =>
+        a.workerName.localeCompare(b.workerName) || a.courseTitle.localeCompare(b.courseTitle),
+    )
+    return { transcript }
   },
 
   // -------------------------------------------------------------------------

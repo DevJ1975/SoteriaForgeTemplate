@@ -721,6 +721,23 @@ const rosterError = ref('')
 const rosterCourseId = ref('')
 const selectedMemberIds = ref<string[]>([])
 const courseEnrollments = ref<CourseEnrollment[]>([])
+// Optional due date for the assignment, as a native date input value
+// ('YYYY-MM-DD'); empty means "no due date". Threaded to the enrollment as an
+// ISO timestamp (end of that local day) so the server-side overdue sweep
+// (migration 14) can flip a past-due, unfinished enrollment to 'overdue'.
+const rosterDueDate = ref('')
+
+/**
+ * Convert the roster due-date input ('YYYY-MM-DD', or empty) to an ISO timestamp
+ * due at the END of that local day, or null when unset/unparseable. End-of-day so
+ * an enrollment is only "past due" after the whole due date has elapsed.
+ */
+function assignDueAtIso(): string | null {
+  const value = rosterDueDate.value.trim()
+  if (!value) return null
+  const due = new Date(`${value}T23:59:59`)
+  return Number.isNaN(due.getTime()) ? null : due.toISOString()
+}
 
 const selectedRosterCourse = computed(() =>
   courseList.value.find((course) => course.id === rosterCourseId.value) ?? null,
@@ -772,7 +789,13 @@ async function assignSelected() {
   }
   status.value = 'Assigning course'
   try {
-    const { assigned } = await consoleApi.assignCourse(rosterCourseId.value, selectedMemberIds.value)
+    // No tenant is sent — RLS stamps the enrollment to the caller's own tenant.
+    // due_at is a scheduling field only (null when unset).
+    const { assigned } = await consoleApi.assignCourse(
+      rosterCourseId.value,
+      selectedMemberIds.value,
+      assignDueAtIso(),
+    )
     status.value = `Assigned course to ${assigned} member(s)`
     selectedMemberIds.value = []
     await loadCourseEnrollments()
@@ -853,6 +876,38 @@ function relativeTime(iso: string): string {
   return `${Math.round(months / 12)}y ago`
 }
 
+/** Escape one CSV cell (RFC 4180-ish): quote when it contains ",\r\n. */
+function csvCell(value: string | number | null): string {
+  const text = value == null ? '' : String(value)
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+/** Serialize a header + rows into a CRLF-joined CSV string. */
+function toCsv(header: string[], rows: (string | number | null)[][]): string {
+  return [header, ...rows].map((cols) => cols.map(csvCell).join(',')).join('\r\n')
+}
+
+/**
+ * Trigger a client-side CSV download from an in-memory string — no data leaves
+ * the browser; it only reflects rows the caller already sees under RLS.
+ */
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+/** Sanitize a string into a filesystem-safe filename fragment. */
+function fileSafe(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'export'
+}
+
 /**
  * Export the by-worker table as a CSV download (nice-to-have). Builds an RFC
  * 4180-ish CSV in-memory and triggers a client download — no data leaves the
@@ -860,10 +915,6 @@ function relativeTime(iso: string): string {
  */
 function exportWorkerCsv() {
   if (!report.value?.byWorker.length) return
-  const escape = (value: string | number) => {
-    const text = String(value)
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
-  }
   const header = ['Worker', 'Email', 'Assigned', 'Completed', 'Avg progress %', 'Completion rate %']
   const rows = report.value.byWorker.map((row) => [
     row.name,
@@ -873,17 +924,71 @@ function exportWorkerCsv() {
     row.avgProgress,
     row.completionRatePct,
   ])
-  const csv = [header, ...rows].map((cols) => cols.map(escape).join(',')).join('\r\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'worker-completion-report.csv'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  downloadCsv(toCsv(header, rows), 'worker-completion-report.csv')
   status.value = 'Exported by-worker report to CSV'
+}
+
+// ── Transcript export (auditable training record) ──────────────────────────────
+// A downloadable CSV of the tenant's training record: enrollment status +
+// completion + due date joined to the auto-issued certificate. Built client-side
+// from an RLS-scoped read (own tenant only) — no tenant is ever sent for
+// authorization. This is the evidence a departed/deactivated worker's record is
+// preserved as, outside the app (migration 13 made the evidence FKs RESTRICT so
+// the rows survive; this is how an admin gets them out). Optional
+// `userId`/`courseId` narrow the export to one worker or course for a drill-down.
+const transcriptExporting = ref(false)
+
+async function exportTranscriptCsv(
+  options: { userId?: string; courseId?: string; label?: string } = {},
+) {
+  if (transcriptExporting.value) return
+  transcriptExporting.value = true
+  reportError.value = ''
+  status.value = 'Building training transcript'
+  try {
+    const { transcript } = await consoleApi.getTranscript({
+      userId: options.userId,
+      courseId: options.courseId,
+    })
+    if (!transcript.length) {
+      status.value = 'No transcript records to export'
+      return
+    }
+    const header = [
+      'Worker',
+      'Email',
+      'Course',
+      'Status',
+      'Progress %',
+      'Due',
+      'Completed',
+      'Certificate #',
+      'Issued',
+      'Expires',
+    ]
+    // Raw ISO timestamps (not localized) so the export is exact + machine-parseable
+    // for audit; empty string for a missing value rather than a display dash.
+    const rows = transcript.map((row) => [
+      row.workerName,
+      row.workerEmail,
+      row.courseTitle,
+      row.status,
+      row.progress,
+      row.dueAt ?? '',
+      row.completedAt ?? '',
+      row.certificateNumber ?? '',
+      row.issuedAt ?? '',
+      row.expiresAt ?? '',
+    ])
+    const suffix = options.label ? `-${fileSafe(options.label)}` : ''
+    downloadCsv(toCsv(header, rows), `training-transcript${suffix}.csv`)
+    status.value = `Exported ${transcript.length} transcript record(s)`
+  } catch (error) {
+    reportError.value = error instanceof Error ? error.message : 'Unable to export transcript'
+    status.value = 'Transcript export failed'
+  } finally {
+    transcriptExporting.value = false
+  }
 }
 
 // ── Certificates view (issued-certificate register) ────────────────────────────
@@ -1515,6 +1620,10 @@ onMounted(async () => {
                 <option v-for="course in courseList" :key="course.id" :value="course.id">{{ course.title }}</option>
               </select>
             </label>
+            <label>
+              Due date (optional)
+              <input v-model="rosterDueDate" type="date" aria-label="Assignment due date" />
+            </label>
             <button
               class="primary-action roster-assign-btn"
               type="button"
@@ -1525,6 +1634,11 @@ onMounted(async () => {
               Assign To {{ selectedMemberIds.length }} Selected
             </button>
           </div>
+          <p class="content-hint">
+            A due date lets the server flag past-due, unfinished enrollments as overdue. Leave it
+            blank for no due date. Re-assigning an already-enrolled worker never overwrites an
+            existing due date.
+          </p>
           <p v-if="rosterError" class="content-error" role="alert">{{ rosterError }}</p>
         </section>
 
@@ -1555,7 +1669,9 @@ onMounted(async () => {
               <div v-for="enrollment in courseEnrollments" :key="enrollment.id" class="content-row">
                 <GraduationCap :size="16" aria-hidden="true" />
                 <span>{{ enrollment.memberName }}</span>
-                <small>{{ enrollment.status }} · {{ enrollment.progress }}%</small>
+                <small>
+                  {{ enrollment.status }} · {{ enrollment.progress }}%<template v-if="enrollment.due_at"> · due {{ formatDate(enrollment.due_at) }}</template>
+                </small>
               </div>
             </div>
           </template>
@@ -1650,15 +1766,27 @@ onMounted(async () => {
         <section class="tenant-list panel">
           <div class="report-head">
             <h2>By worker</h2>
-            <button
-              class="secondary-action report-refresh"
-              type="button"
-              :disabled="!report || !report.byWorker.length"
-              @click="exportWorkerCsv"
-            >
-              <Download :size="16" aria-hidden="true" />
-              Export CSV
-            </button>
+            <div class="report-head-actions">
+              <button
+                class="secondary-action report-refresh"
+                type="button"
+                :disabled="!report || !report.byWorker.length"
+                @click="exportWorkerCsv"
+              >
+                <Download :size="16" aria-hidden="true" />
+                Export CSV
+              </button>
+              <button
+                class="secondary-action report-refresh"
+                type="button"
+                :disabled="transcriptExporting"
+                title="Download the full training transcript (enrollment status, due/completion, certificates) as CSV"
+                @click="exportTranscriptCsv()"
+              >
+                <FileStack :size="16" aria-hidden="true" />
+                {{ transcriptExporting ? 'Exporting…' : 'Export Transcript' }}
+              </button>
+            </div>
           </div>
           <p v-if="reportLoading && !report" class="content-empty">Loading report…</p>
           <p v-else-if="!report || !report.byWorker.length" class="content-empty">No workers enrolled yet.</p>
@@ -1676,6 +1804,15 @@ onMounted(async () => {
                   <span class="report-worker-name">{{ row.name }}</span>
                   <small v-if="row.email" class="report-worker-email">{{ row.email }}</small>
                 </span>
+                <button
+                  class="content-icon-btn report-worker-transcript"
+                  type="button"
+                  :disabled="transcriptExporting"
+                  :title="`Export ${row.name}'s training transcript as CSV`"
+                  @click="exportTranscriptCsv({ userId: row.userId, label: row.email || row.name })"
+                >
+                  <Download :size="14" aria-hidden="true" />
+                </button>
               </span>
               <span class="report-num" role="cell">{{ row.assigned }}</span>
               <span class="report-num" role="cell">{{ row.completed }}</span>
@@ -1719,10 +1856,22 @@ onMounted(async () => {
                 server-side (RLS).
               </p>
             </div>
-            <button class="secondary-action report-refresh" type="button" :disabled="certificatesLoading" @click="refreshCertificates">
-              <RefreshCw :size="16" aria-hidden="true" />
-              {{ certificatesLoading ? 'Refreshing…' : 'Refresh' }}
-            </button>
+            <div class="report-head-actions">
+              <button
+                class="secondary-action report-refresh"
+                type="button"
+                :disabled="transcriptExporting"
+                title="Download the full training transcript (enrollment status, due/completion, certificates) as CSV"
+                @click="exportTranscriptCsv()"
+              >
+                <FileStack :size="16" aria-hidden="true" />
+                {{ transcriptExporting ? 'Exporting…' : 'Export Transcript' }}
+              </button>
+              <button class="secondary-action report-refresh" type="button" :disabled="certificatesLoading" @click="refreshCertificates">
+                <RefreshCw :size="16" aria-hidden="true" />
+                {{ certificatesLoading ? 'Refreshing…' : 'Refresh' }}
+              </button>
+            </div>
           </div>
           <p v-if="certificatesError" class="content-error" role="alert">{{ certificatesError }}</p>
         </section>

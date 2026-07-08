@@ -12,7 +12,8 @@
     "src"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json; node --test \".test-dist/**/*.test.js\""
   },
   "peerDependencies": {
     "react": ">=18",
@@ -20,6 +21,7 @@
     "react-native-svg": ">=15"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "typescript": "^5.9.3"
   }
 }

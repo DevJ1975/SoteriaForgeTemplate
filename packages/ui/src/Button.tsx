@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, Text, ActivityIndicator, View } from 'react-native';
 import type { StyleProp, ViewStyle, TextStyle } from 'react-native';
-import { useTheme, elevation } from './theme';
+import { useTheme, elevation, palette } from './theme';
 import { useReducedMotion } from './motion';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -35,8 +35,15 @@ export function Button({
   const s = SIZES[size];
   const isDisabled = disabled || loading;
 
+  // Primary label uses dark INK (not white): white on the ember fill (#E8551F)
+  // is only ~3.1:1 — a WCAG AA fail — whereas ink on ember is ~4.6:1, and ink on
+  // the dark-scheme emberHot fill is ~6.5:1. This keeps THE iconic ember fill
+  // untouched (no new palette token, no tokens.css change) and is asserted in
+  // a11y/__tests__/contrast.test.ts. Scoped to the primary button on purpose:
+  // the flat `onPrimary` token is also used on success-green surfaces elsewhere,
+  // where white is already accessible.
   const palettes: Record<ButtonVariant, { bg: string; bgPressed: string; fg: string; border: string }> = {
-    primary: { bg: t.colors.primary, bgPressed: t.colors.primaryPressed, fg: t.colors.onPrimary, border: 'transparent' },
+    primary: { bg: t.colors.primary, bgPressed: t.colors.primaryPressed, fg: palette.ink, border: 'transparent' },
     secondary: { bg: 'transparent', bgPressed: t.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(232,85,31,0.06)', fg: t.colors.text, border: t.colors.border },
     ghost: { bg: 'transparent', bgPressed: t.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(232,85,31,0.08)', fg: t.colors.primary, border: 'transparent' },
     danger: { bg: t.colors.danger, bgPressed: '#9E2E22', fg: '#FFFFFF', border: 'transparent' },

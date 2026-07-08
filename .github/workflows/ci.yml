@@ -110,6 +110,21 @@ jobs:
       - name: mobile — unit tests (node:test)
         run: npm run test --workspace @soteria-forge/mobile
 
+      # Config + dependency-matrix audit for the upgraded Expo toolchain (SDK 54).
+      # Runs after the type-check/tests so a doctor opinion never masks a real
+      # compile failure. NON-BLOCKING on purpose: expo-doctor@latest (SDK-57-era)
+      # gates on two DELIBERATE choices this project makes — @nozbe/watermelondb
+      # is "untested on New Architecture" (which is exactly why we stay on the old
+      # architecture, and it is excluded via expo.doctor.reactNativeDirectoryCheck
+      # .exclude), and the monorepo's intentional metro.config.js overrides
+      # (disableHierarchicalLookup / watchFolders). We keep the audit running for
+      # signal but do not fail the build on those opinions; make it blocking again
+      # once the app moves to the New Architecture.
+      - name: mobile — expo doctor (config + dependency-matrix audit, non-blocking)
+        working-directory: apps/mobile
+        run: |
+          npx --yes expo-doctor@latest || echo "::warning::expo-doctor reported issues (non-blocking; see log for known items — watermelondb old-arch and monorepo metro overrides)"
+
   # Type-check + production build of the React web PWA. `build` runs
   # `tsc --noEmit && vite build`, so a green build here proves the app compiles
   # AND that vite-plugin-pwa emits the service worker + manifest. Scoped install
@@ -141,3 +156,33 @@ jobs:
             test -f "apps/web/dist/$f" || { echo "::error::apps/web/dist/$f missing — PWA build incomplete"; exit 1; }
           done
           echo "PWA artifacts present: sw.js, manifest.webmanifest, icons"
+
+  # Machine-checks the ember/spark design tokens meet WCAG AA. Installs nothing
+  # but a pinned tsc: compiles ONLY the react-native-free modules
+  # (packages/ui/src/palette.ts + src/a11y/**) via the standalone
+  # tsconfig.test.json and runs the node:test contrast suite over the emitted JS.
+  # If a brand tweak drops any shipped foreground/background pairing below AA,
+  # this fails. Same @types/node tolerance as verify-foundation (no lockfile is
+  # installed, so the node:test type import errors but tsc still emits;
+  # node --test needs no type packages at runtime).
+  verify-design-tokens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install TypeScript
+        run: npm install -g typescript@5.9.3
+
+      - name: ui — compile the RN-free contrast tests + run them
+        working-directory: packages/ui
+        run: |
+          # tsc emits JS even though the test files can't resolve @types/node
+          # (no lockfile installed, noEmitOnError is off); the emitted .test-dist
+          # is what we execute. node --test needs no type packages at runtime.
+          tsc -p tsconfig.test.json || echo "tsc reported test-file type notes (expected without @types/node); .test-dist emitted"
+          test -f .test-dist/a11y/__tests__/contrast.test.js || { echo "::error::ui contrast tests did not emit"; exit 1; }
+          node --test ".test-dist/**/*.test.js"

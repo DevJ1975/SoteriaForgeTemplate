@@ -1,0 +1,2 @@
+# Emitted by `npm test` (tsc -p tsconfig.test.json → node --test). Throwaway.
+.test-dist/

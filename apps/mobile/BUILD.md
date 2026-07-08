@@ -15,7 +15,7 @@ Android package: `com.soteriaforge.learner` · slug `soteria-forge-mobile`.
 
 ## 0. One-time prerequisites
 
-- **Node 20+** and this monorepo checked out.
+- **Node 20.19.4+ or 22.x** (Expo SDK 54 floor) and this monorepo checked out.
 - A **Supabase `.env`** for the app (client-safe values only):
   ```bash
   cd apps/mobile
@@ -107,18 +107,30 @@ distributable EAS build (a dev build works fine without them; Expo falls back to
 ## Notes
 
 - **WatermelonDB runs on the async bridge for now** (`disableJsi: true` on the config plugin):
-  the plugin's Android JSI injection targets an API React Native removed after 0.73, so it cannot
-  compile on RN 0.76. `SQLiteAdapter({ jsi: true })` detects the missing JSI install and falls
-  back to the async bridge with a console warning — correct, just slower. Revisit with the SDK
-  upgrade.
+  the plugin's Android JSI injection targets an API React Native removed after 0.73, so it does
+  not compile against RN 0.81's JSI on the old architecture. `SQLiteAdapter({ jsi: true })` detects
+  the missing JSI install and falls back to the async bridge with a console warning — correct, just
+  slower. Enabling WatermelonDB JSI requires the New Architecture (see the next note); it is a
+  tracked follow-up owned by `offline-sync`, not something to flip here alone.
 - **If a lockfile is ever committed**, keep `@supabase/supabase-js` resolving to ≥ 2.50: older
   pins pull a `realtime-js` that requires Node's `ws`/`stream`, which breaks the Metro bundle
   under the package-exports resolution this app enables.
-- **New Architecture is intentionally OFF** (`newArchEnabled: false` in `app.json`) for first
-  boots: WatermelonDB's JSI adapter has a history of new-arch incompatibilities, and a first
-  device bring-up should have the fewest unknowns. Revisit (flip to `true`) alongside the
-  Expo SDK upgrade — Play's Aug 2026 target-API requirement forces that upgrade before any
-  Play submission anyway.
+- **Toolchain: Expo SDK 54 / React Native 0.81 / React 19.1.** This clears both current store
+  submission floors — Apple's iOS 26 SDK requirement (RN 0.81 builds with Xcode 26) and Google
+  Play's target-API-35 floor (Android defaults to `compileSdk`/`targetSdk` 36, set explicitly in
+  the `expo-build-properties` plugin alongside `buildToolsVersion` `36.0.0` and Kotlin `2.1.20`).
+  SDK 54 is the **last Expo SDK that supports the old React Native architecture**, which is why it
+  is the ceiling for this bump: SDK 55+ are New-Architecture-only.
+- **New Architecture is intentionally OFF** (`newArchEnabled: false` in `app.json`): WatermelonDB's
+  JSI adapter (via `@morrowdigital/watermelondb-expo-plugin`, `disableJsi: true`) has no verified
+  New-Architecture story at this SDK, so the app stays on the old architecture and the async
+  bridge. Consequently `react-native-reanimated` is pinned to the **old-architecture `~3.19.x`
+  line** — SDK 54 bundles Reanimated 4, which is New-Architecture-only, so it is deliberately held
+  off-matrix (declared in `package.json` `expo.install.exclude` so `expo-doctor`/`expo install`
+  do not force the 4.x bundle). Migrating to the New Architecture (Reanimated 4 + WatermelonDB
+  JSI) is a tracked follow-up owned by `offline-sync`; it must land before an SDK 55+ upgrade.
+- **Android edge-to-edge is now enforced** by RN 0.81 / SDK 54 and cannot be disabled — verify
+  safe-area insets on the learner screens (a `mobile`/`ui-ux` check, not a config change here).
 - The first EAS build generates an Android keystore for you (managed credentials) — no manual signing setup.
 - `eas.json` defines three profiles: `development` (dev client APK), `preview` (installable APK — use this to *see* it), `production` (Play Store app-bundle).
 - Do not commit `.env` or the service-role key. Only `.env.example` placeholders + the client-safe anon key belong anywhere near the client.
